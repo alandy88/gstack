@@ -689,6 +689,10 @@ body::after {
   border-color: var(--error);
   animation: shake 300ms ease;
 }
+.command-input.error::placeholder {
+  color: var(--error);
+  opacity: 0.8;
+}
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-4px); }
