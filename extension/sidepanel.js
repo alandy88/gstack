@@ -636,6 +636,21 @@ document.getElementById('reload-sidebar').addEventListener('click', () => {
   location.reload();
 });
 
+// ─── Copy Cookies ───────────────────────────────────────────────
+document.getElementById('copy-cookies').addEventListener('click', async () => {
+  if (!serverUrl) return;
+  // Navigate the browser to the cookie picker page hosted by the browse server
+  try {
+    await fetch(`${serverUrl}/command`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ command: 'goto', args: [`${serverUrl}/cookie-picker`] }),
+    });
+  } catch (err) {
+    console.error('[gstack sidebar] Failed to open cookie picker:', err.message);
+  }
+});
+
 // ─── Debug Tabs ─────────────────────────────────────────────────
 
 const debugToggle = document.getElementById('debug-toggle');
