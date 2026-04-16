@@ -27,6 +27,20 @@ import {
   DESTRUCTIVE_PATTERN_LIST,
   ONE_WAY_SKILL_CATEGORY_SET,
 } from '../scripts/one-way-doors';
+import {
+  SIGNAL_MAP,
+  applySignal,
+  validateRegistrySignalKeys,
+  newDimensionTotals,
+  normalizeToDimensionValue,
+  ALL_DIMENSIONS,
+} from '../scripts/psychographic-signals';
+import {
+  ARCHETYPES,
+  FALLBACK_ARCHETYPE,
+  matchArchetype,
+  getAllArchetypeNames,
+} from '../scripts/archetypes';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -211,10 +225,10 @@ describe('registry breadth', () => {
 });
 
 // -----------------------------------------------------------------------
-// Signal map consistency (created alongside registry)
+// Signal map consistency
 // -----------------------------------------------------------------------
 
-describe('psychographic signal map references', () => {
+describe('psychographic signal map', () => {
   test('signal_keys in registry are typed strings', () => {
     for (const q of Object.values(QUESTIONS as Record<string, QuestionDef>)) {
       if (q.signal_key !== undefined) {
@@ -225,8 +239,121 @@ describe('psychographic signal map references', () => {
     }
   });
 
-  // When scripts/psychographic-signals.ts ships, add a test that every
-  // signal_key referenced in QUESTIONS has a matching entry in the signal map.
+  test('every signal_key in registry has a SIGNAL_MAP entry', () => {
+    const { missing } = validateRegistrySignalKeys();
+    expect(missing).toEqual([]);
+  });
+
+  test('applySignal mutates dimension totals per mapping', () => {
+    const dims = newDimensionTotals();
+    const applied = applySignal(dims, 'scope-appetite', 'expand');
+    expect(applied.length).toBeGreaterThan(0);
+    expect(dims.scope_appetite).toBeCloseTo(0.06, 5);
+  });
+
+  test('applySignal returns [] for unknown signal_key', () => {
+    const dims = newDimensionTotals();
+    const applied = applySignal(dims, 'no-such-signal', 'anything');
+    expect(applied).toEqual([]);
+    expect(dims.scope_appetite).toBe(0);
+  });
+
+  test('applySignal returns [] for unknown user_choice', () => {
+    const dims = newDimensionTotals();
+    const applied = applySignal(dims, 'scope-appetite', 'definitely-not-a-real-choice');
+    expect(applied).toEqual([]);
+  });
+
+  test('normalizeToDimensionValue maps 0 → 0.5 (neutral)', () => {
+    expect(normalizeToDimensionValue(0)).toBeCloseTo(0.5, 5);
+  });
+
+  test('normalizeToDimensionValue returns values in [0, 1]', () => {
+    for (const total of [-10, -1, -0.5, 0, 0.5, 1, 10]) {
+      const v = normalizeToDimensionValue(total);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test('ALL_DIMENSIONS has 5 entries', () => {
+    expect(ALL_DIMENSIONS.length).toBe(5);
+  });
+
+  test('no extra SIGNAL_MAP keys without registry reference (informational)', () => {
+    // Extra keys are allowed (a signal might be reserved for upcoming registry
+    // entries). But list them so drift is visible.
+    const { extra } = validateRegistrySignalKeys();
+    // Allow up to 3 "reserved" extras before flagging. Tighten later.
+    expect(extra.length).toBeLessThanOrEqual(3);
+  });
+});
+
+// -----------------------------------------------------------------------
+// Archetypes
+// -----------------------------------------------------------------------
+
+describe('archetypes', () => {
+  test('each archetype has name, description, center, tightness', () => {
+    for (const arch of ARCHETYPES) {
+      expect(arch.name).toBeDefined();
+      expect(arch.description).toBeDefined();
+      expect(arch.center).toBeDefined();
+      expect(arch.tightness).toBeGreaterThan(0);
+      for (const d of ALL_DIMENSIONS) {
+        expect(typeof arch.center[d]).toBe('number');
+        expect(arch.center[d]).toBeGreaterThanOrEqual(0);
+        expect(arch.center[d]).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  test('archetype names are unique', () => {
+    const names = ARCHETYPES.map((a) => a.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  test('matchArchetype returns Cathedral Builder for boil-the-ocean profile', () => {
+    const dims = {
+      scope_appetite: 0.88,
+      risk_tolerance: 0.55,
+      detail_preference: 0.5,
+      autonomy: 0.5,
+      architecture_care: 0.85,
+    };
+    const match = matchArchetype(dims);
+    expect(match.name).toBe('Cathedral Builder');
+  });
+
+  test('matchArchetype returns Ship-It Pragmatist for small-scope/fast profile', () => {
+    const dims = {
+      scope_appetite: 0.22,
+      risk_tolerance: 0.78,
+      detail_preference: 0.25,
+      autonomy: 0.7,
+      architecture_care: 0.38,
+    };
+    const match = matchArchetype(dims);
+    expect(match.name).toBe('Ship-It Pragmatist');
+  });
+
+  test('matchArchetype returns Polymath for extreme-outlier profile', () => {
+    const dims = {
+      scope_appetite: 0.05,
+      risk_tolerance: 0.95,
+      detail_preference: 0.95,
+      autonomy: 0.05,
+      architecture_care: 0.05,
+    };
+    const match = matchArchetype(dims);
+    expect(match.name).toBe(FALLBACK_ARCHETYPE.name);
+  });
+
+  test('getAllArchetypeNames includes Polymath fallback', () => {
+    const names = getAllArchetypeNames();
+    expect(names).toContain('Polymath');
+    expect(names.length).toBe(ARCHETYPES.length + 1);
+  });
 });
 
 // -----------------------------------------------------------------------
