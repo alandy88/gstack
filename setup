@@ -292,6 +292,10 @@ if ! ensure_playwright_browser; then
       cd "$SOURCE_GSTACK_DIR"
       # Bun's node_modules already has playwright; verify Node can require it
       node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
+      # @ngrok/ngrok is externalized in server-node.mjs and resolved at runtime.
+      # Verify the platform-specific native binary is installed so /pair-agent
+      # tunnels don't fail later with a cryptic module-not-found error.
+      node -e "require('@ngrok/ngrok')" 2>/dev/null || npm install --no-save @ngrok/ngrok
     )
   fi
 fi
