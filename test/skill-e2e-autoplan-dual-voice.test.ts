@@ -70,31 +70,41 @@ Add a new /greet skill that prints a welcome message.
       // If Codex is unavailable on the test machine, the skill should print
       // [codex-unavailable] and still complete the Claude subagent half.
       const result = await runSkillTest({
-        name: 'autoplan-dual-voice',
-        workdir: workDir,
+        testName: 'autoplan-dual-voice',
+        workingDirectory: workDir,
         prompt: `/autoplan ${planPath}`,
-        timeoutMs: 300_000, // 5 min
-        evalCollector,
+        timeout: 300_000, // 5 min
+        // /autoplan spawns subagents and calls codex via Bash; it needs the
+        // full tool set to get past Phase 1. Bash+Read+Write alone wasn't
+        // enough — the skill stalled trying to invoke Agent/Skill.
+        allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Agent', 'Skill'],
+        maxTurns: 30,
+        runId,
       });
 
       // Accept EITHER outcome as success:
       //   (a) Both voices produced output (ideal case)
       //   (b) Codex unavailable + Claude voice produced output (graceful degrade)
-      const out = result.stdout + result.stderr;
-      const claudeVoiceFired = /Claude\s+(CEO|subagent)|claude-subagent/i.test(out);
-      const codexVoiceFired = /codex\s+(exec|review|CEO\s+voice)|\[via:codex\]/i.test(out);
-      const codexUnavailable = /\[codex-unavailable\]|AUTH_FAILED|codex_cli_missing/i.test(out);
+      // Session runner returns `output` (final assistant message). Search
+      // transcript tool-call inputs/outputs as a broader net for voice fingerprints.
+      const transcriptText = JSON.stringify(result.transcript || []);
+      const out = (result.output ?? '') + '\n' + transcriptText;
+      const claudeVoiceFired = /Claude\s+(CEO|subagent)|claude-subagent|Agent\s*\(|subagent_type/i.test(out);
+      const codexVoiceFired = /codex\s+(exec|review)|CODEX SAYS|\[via:codex\]|codex-plan-review/i.test(out);
+      const codexUnavailable = /\[codex-unavailable\]|AUTH_FAILED|CODEX_NOT_AVAILABLE|codex_cli_missing|Codex CLI not found/i.test(out);
 
       expect(claudeVoiceFired).toBe(true);
       expect(codexVoiceFired || codexUnavailable).toBe(true);
 
       // Hang protection: if the skill reached Phase 1 at all, our hardening worked.
       // If it didn't, this is a regression from the pre-wave stdin-deadlock era.
-      const reachedPhase1 = /Phase 1|CEO\s+Review|Strategy\s*&\s*Scope/i.test(out);
+      const reachedPhase1 = /Phase 1|CEO\s+Review|Strategy\s*&\s*Scope|plan-ceo-review/i.test(out);
       expect(reachedPhase1).toBe(true);
 
-      logCost(result);
-      recordE2E('autoplan-dual-voice', result);
+      logCost('autoplan-dual-voice', result);
+      recordE2E(evalCollector, 'autoplan-dual-voice', 'Autoplan dual-voice E2E', result, {
+        passed: claudeVoiceFired && (codexVoiceFired || codexUnavailable) && reachedPhase1,
+      });
     },
     330_000, // per-test timeout slightly > spawn timeout so cleanup can run
   );
