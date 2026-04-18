@@ -128,7 +128,25 @@ async function resolvesToBlockedIp(hostname: string): Promise<boolean> {
 export function normalizeFileUrl(url: string): string {
   if (!url.toLowerCase().startsWith('file:')) return url;
 
-  const rest = url.slice('file:'.length);
+  // Split off query + fragment BEFORE touching the path — SPAs + fixture URLs rely
+  // on these. path.resolve would URL-encode `?` and `#` as `%3F`/`%23` (and
+  // pathToFileURL drops them entirely), silently routing preview URLs to the
+  // wrong fixture. Extract, normalize the path, reattach at the end.
+  //
+  // Parse order: `?` before `#` per RFC 3986 — '?' in a fragment is literal.
+  // Find the FIRST `?` or `#`, whichever comes first, and take everything
+  // after (including the delimiter) as the trailing segment.
+  const qIdx = url.indexOf('?');
+  const hIdx = url.indexOf('#');
+  let delimIdx = -1;
+  if (qIdx >= 0 && hIdx >= 0) delimIdx = Math.min(qIdx, hIdx);
+  else if (qIdx >= 0) delimIdx = qIdx;
+  else if (hIdx >= 0) delimIdx = hIdx;
+
+  const pathPart = delimIdx >= 0 ? url.slice(0, delimIdx) : url;
+  const trailing = delimIdx >= 0 ? url.slice(delimIdx) : '';
+
+  const rest = pathPart.slice('file:'.length);
 
   // file:/// or longer → standard absolute; pass through unchanged (caller validates path).
   if (rest.startsWith('///')) {
@@ -136,7 +154,7 @@ export function normalizeFileUrl(url: string): string {
     if (rest === '///' || rest === '////') {
       throw new Error('Invalid file URL: file:/// has no path. Use file:///<absolute-path>.');
     }
-    return url;
+    return pathPart + trailing;
   }
 
   // Everything else: must start with // (we accept file://... only)
@@ -161,19 +179,19 @@ export function normalizeFileUrl(url: string): string {
   if (afterDoubleSlash.startsWith('~/')) {
     const rel = afterDoubleSlash.slice(2);
     const absPath = path.join(os.homedir(), rel);
-    return pathToFileURL(absPath).href;
+    return pathToFileURL(absPath).href + trailing;
   }
 
   // cwd-relative with explicit ./ : file://./<rel>
   if (afterDoubleSlash.startsWith('./')) {
     const rel = afterDoubleSlash.slice(2);
     const absPath = path.resolve(process.cwd(), rel);
-    return pathToFileURL(absPath).href;
+    return pathToFileURL(absPath).href + trailing;
   }
 
   // localhost host explicitly allowed: file://localhost/<abs> (pass through to standard parser).
   if (afterDoubleSlash.toLowerCase().startsWith('localhost/')) {
-    return url;
+    return pathPart + trailing;
   }
 
   // Ambiguous: file://<segment>/<rest> — treat as cwd-relative ONLY if <segment> is a
@@ -193,7 +211,7 @@ export function normalizeFileUrl(url: string): string {
 
   // Simple-segment cwd-relative: file://docs/page.html → cwd/docs/page.html
   const absPath = path.resolve(process.cwd(), afterDoubleSlash);
-  return pathToFileURL(absPath).href;
+  return pathToFileURL(absPath).href + trailing;
 }
 
 /**
@@ -232,6 +250,8 @@ export async function validateNavigationUrl(url: string): Promise<string> {
     }
 
     // Convert URL → filesystem path with proper decoding (handles %20, %2F, etc.)
+    // fileURLToPath strips query + hash; we reattach them after validation so SPA
+    // fixture URLs like file:///tmp/app.html?route=home#login survive intact.
     let fsPath: string;
     try {
       fsPath = fileURLToPath(parsed);
@@ -244,9 +264,10 @@ export async function validateNavigationUrl(url: string): Promise<string> {
     // is suspicious. path.resolve will normalize it; check the result against safe dirs.
     validateReadPath(fsPath);
 
-    // Return the canonical file:// URL derived from the filesystem path.
-    // This guarantees page.goto() gets a well-formed URL regardless of input shape.
-    return pathToFileURL(fsPath).href;
+    // Return the canonical file:// URL derived from the filesystem path + original
+    // query + hash. This guarantees page.goto() gets a well-formed URL regardless
+    // of input shape while preserving SPA route/query params.
+    return pathToFileURL(fsPath).href + parsed.search + parsed.hash;
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {

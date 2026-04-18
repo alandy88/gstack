@@ -1160,6 +1160,7 @@ async function handleCommandInternal(
     writeAuditEntry({
       ts: new Date().toISOString(),
       cmd: command,
+      aliasOf: isAliased ? rawCommand : undefined,
       args: args.join(' '),
       origin: browserManager.getCurrentUrl(),
       durationMs: successDuration,
@@ -1204,6 +1205,7 @@ async function handleCommandInternal(
     writeAuditEntry({
       ts: new Date().toISOString(),
       cmd: command,
+      aliasOf: isAliased ? rawCommand : undefined,
       args: args.join(' '),
       origin: browserManager.getCurrentUrl(),
       durationMs: errorDuration,

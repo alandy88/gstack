@@ -37,6 +37,12 @@ export interface BrowserState {
      */
     loadedHtml?: string;
     loadedHtmlWaitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
+    /**
+     * Tab owner clientId for multi-agent isolation. Survives context recreation so
+     * scoped agents don't get locked out of their own tabs after viewport --scale.
+     * In-memory only.
+     */
+    owner?: string;
   }>;
 }
 
@@ -882,6 +888,8 @@ export class BrowserManager {
       // can replay it via setTabContent. Never persisted to disk.
       const session = this.tabSessions.get(id);
       const loaded = session?.getLoadedHtml();
+      // Preserve tab ownership through recreation so scoped agents aren't locked out.
+      const owner = this.tabOwnership.get(id);
 
       pages.push({
         url: url === 'about:blank' ? '' : url,
@@ -889,6 +897,7 @@ export class BrowserManager {
         storage,
         loadedHtml: loaded?.html,
         loadedHtmlWaitUntil: loaded?.waitUntil,
+        owner,
       });
     }
 
@@ -908,6 +917,12 @@ export class BrowserManager {
       await this.context.addCookies(state.cookies);
     }
 
+    // Clear stale ownership — the old tab IDs are gone. We'll re-add per-tab
+    // owners below as each saved tab gets a fresh ID. Without this reset, old
+    // tabId → clientId entries would linger and match new tabs with the same
+    // sequential IDs, silently granting ownership to the wrong clients.
+    this.tabOwnership.clear();
+
     // Re-create pages
     let activeId: number | null = null;
     for (const saved of state.pages) {
@@ -917,6 +932,12 @@ export class BrowserManager {
       const newSession = new TabSession(page);
       this.tabSessions.set(id, newSession);
       this.wirePageEvents(page);
+
+      // Restore tab ownership for the new ID — preserves scoped-agent isolation
+      // across context recreation (viewport --scale, user-agent change, handoff).
+      if (saved.owner) {
+        this.tabOwnership.set(id, saved.owner);
+      }
 
       if (saved.loadedHtml) {
         // Replay load-html content via setTabContent — this rehydrates
@@ -1068,10 +1089,19 @@ export class BrowserManager {
 
     const err = await this.recreateContext();
     if (err !== null) {
-      // recreateContext already warned and reset to a blank tab; roll back the fields
-      // so the next call doesn't inherit the failed values.
+      // recreateContext's fallback path built a blank context using the NEW scale +
+      // viewport (the fields we just set). Rolling the fields back without a second
+      // recreate would leave the live context at new-scale while state says old-scale.
+      // Roll back fields FIRST, then force a second recreate against the old values
+      // so live state matches tracked state.
       this.deviceScaleFactor = prevScale;
       this.currentViewport = prevViewport;
+      const rollbackErr = await this.recreateContext();
+      if (rollbackErr !== null) {
+        // Second recreate also failed — we're in a clean blank slate via fallback, but
+        // with old scale. Return the original error so the caller sees the primary failure.
+        return `${err} (rollback also encountered: ${rollbackErr})`;
+      }
       return err;
     }
     return null;
@@ -1080,6 +1110,11 @@ export class BrowserManager {
   /** Read current deviceScaleFactor (for tests + debug). */
   getDeviceScaleFactor(): number {
     return this.deviceScaleFactor;
+  }
+
+  /** Read current tracked viewport (for tests + `viewport --scale` size fallback). */
+  getCurrentViewport(): { width: number; height: number } {
+    return { ...this.currentViewport };
   }
 
   // ─── Handoff: Headless → Headed ─────────────────────────────

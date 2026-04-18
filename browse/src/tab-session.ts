@@ -157,11 +157,18 @@ export class TabSession {
   }
 
   /**
-   * Called on main-frame navigation to clear stale refs and frame context.
+   * Called on main-frame navigation to clear stale refs, frame context, and any
+   * load-html replay metadata. Runs for every main-frame nav — explicit goto/back/
+   * forward/reload AND browser-emitted navigations (link clicks, form submits, JS
+   * redirects, OAuth). Without clearing loadedHtml here, a user who load-html'd and
+   * then clicked a link would silently revert to the original HTML on the next
+   * viewport --scale.
    */
   onMainFrameNavigated(): void {
     this.clearRefs();
     this.activeFrame = null;
+    this.loadedHtml = null;
+    this.loadedHtmlWaitUntil = undefined;
   }
 
   // ─── Loaded HTML (load-html replay) ───────────────────────
@@ -174,9 +181,12 @@ export class TabSession {
    */
   async setTabContent(html: string, opts: { waitUntil?: SetContentWaitUntil } = {}): Promise<void> {
     const waitUntil = opts.waitUntil ?? 'domcontentloaded';
+    // Call setContent FIRST — only record the replay metadata after a successful load.
+    // If setContent throws (timeout, crash), we must not leave phantom HTML that a
+    // later viewport --scale would replay.
+    await this.page.setContent(html, { waitUntil, timeout: 15000 });
     this.loadedHtml = html;
     this.loadedHtmlWaitUntil = waitUntil;
-    await this.page.setContent(html, { waitUntil, timeout: 15000 });
   }
 
   /** Get stored HTML + waitUntil for state replay. Returns null if no load-html happened. */

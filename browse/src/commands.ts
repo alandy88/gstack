@@ -238,17 +238,18 @@ export function buildUnknownCommandError(
   let msg = `Unknown command: '${command}'.`;
 
   // Suggestion via Levenshtein, gated on input length to avoid noisy short-input matches.
+  // Candidates are pre-sorted alphabetically, so strict "d < bestDist" gives us the
+  // closest match with alphabetical tiebreak for free — first equal-distance candidate
+  // wins because subsequent equal-distance candidates fail the strict-less check.
   if (command.length >= 4) {
     let best: string | undefined;
-    let bestDist = 3;
+    let bestDist = 3; // sentinel: distance 3 would be rejected by the <= 2 gate below
     const candidates = [...commandSet, ...Object.keys(aliasMap)].sort();
     for (const cand of candidates) {
       const d = levenshtein(command, cand);
-      if (d < bestDist || (d === bestDist && best !== undefined && cand < best)) {
-        if (d <= 2) {
-          best = cand;
-          bestDist = d;
-        }
+      if (d <= 2 && d < bestDist) {
+        best = cand;
+        bestDist = d;
       }
     }
     if (best) msg += ` Did you mean '${best}'?`;

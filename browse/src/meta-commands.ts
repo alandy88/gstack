@@ -632,9 +632,17 @@ export async function handleMetaCommand(
         // Close existing pages, then restore (replace, not merge)
         bm.setFrame(null);
         await bm.closeAllPages();
+        // Allowlist disk-loaded page fields — NEVER accept loadedHtml, loadedHtmlWaitUntil,
+        // or owner from disk. Those are in-memory-only invariants; allowing them would let
+        // a tampered state file smuggle HTML past load-html's safe-dirs + magic-byte + size
+        // checks, or forge tab ownership for cross-agent authorization bypass.
         await bm.restoreState({
           cookies: validatedCookies,
-          pages: data.pages.map((p: any) => ({ ...p, storage: null })),
+          pages: data.pages.map((p: any) => ({
+            url: typeof p.url === 'string' ? p.url : '',
+            isActive: Boolean(p.isActive),
+            storage: null,
+          })),
         });
         return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages`;
       }

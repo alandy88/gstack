@@ -478,9 +478,10 @@ export async function handleWriteCommand(
         w = Math.min(Math.max(Math.round(rawW) || 1280, 1), 16384);
         h = Math.min(Math.max(Math.round(rawH) || 720, 1), 16384);
       } else {
-        // --scale without WxH → read current size from page
-        const current = page.viewportSize();
-        if (!current) throw new Error('viewport --scale: could not read current viewport size.');
+        // --scale without WxH → use BrowserManager's tracked viewport (source of truth
+        // since setViewport + launchContext keep it in sync). Falls back reliably on
+        // headed → headless transitions or contexts with viewport:null.
+        const current = bm.getCurrentViewport();
         w = current.width;
         h = current.height;
       }
