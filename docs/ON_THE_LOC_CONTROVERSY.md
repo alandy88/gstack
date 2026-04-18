@@ -4,7 +4,7 @@ Or: what happened when I mentioned how many lines of code I've been shipping, an
 
 ## The critique is right. And it doesn't matter.
 
-LOC is a garbage metric. Every senior engineer knows it. Dijkstra wrote in 1988 that lines of code shouldn't be counted as "lines produced" but as "lines spent" ([*On the cruelty of really teaching computing science*, EWD1036](https://www.cs.utexas.edu/~EWD/transcriptions/EWD10xx/EWD1036.html)). Bill Gates put it more memorably: measuring programming progress by LOC is like measuring aircraft building progress by weight. If you measure programmer productivity in lines of code, you're measuring the wrong thing. This has been true for 40 years and it's still true.
+LOC is a garbage metric. Every senior engineer knows it. Dijkstra wrote in 1988 that lines of code shouldn't be counted as "lines produced" but as "lines spent" ([*On the cruelty of really teaching computing science*, EWD1036](https://www.cs.utexas.edu/~EWD/transcriptions/EWD10xx/EWD1036.html)). The old line (widely attributed to Bill Gates, sourcing murky) puts it more memorably: measuring programming progress by LOC is like measuring aircraft building progress by weight. If you measure programmer productivity in lines of code, you're measuring the wrong thing. This has been true for 40 years and it's still true.
 
 I posted that in the last 60 days I'd shipped 600,000 lines of production code. The replies came in fast:
 
@@ -52,7 +52,7 @@ One repo excluded from 2026: `tax-app` (demo for a YC video, not production work
 
 It was. That's the point.
 
-In 2013 I was a YC partner, then a cofounder at Posterous shipping code nights and weekends. 14 logical lines per day was my actual part-time output while holding down a real job. Historical research suggests that professional full-time programmers averaged 10-50 logical lines per day depending on the study — Fred Brooks cited 10 lines/day for systems programming in *The Mythical Man-Month*, Capers Jones measured 15-50 across thousands of projects, and Steve McConnell's *Code Complete* puts the range at 10-50 for "finished, tested, delivered" code.
+In 2013 I was a YC partner, then a cofounder at Posterous shipping code nights and weekends. 14 logical lines per day was my actual part-time output while holding down a real job. Historical research puts professional full-time programmer output in a wide band depending on project size and study: Fred Brooks cited ~10 lines/day for systems programming in *The Mythical Man-Month* (OS/360 observations), Capers Jones measured roughly 16-38 LOC/day across thousands of projects, and Steve McConnell's *Code Complete* reports 20-125 LOC/day for small projects (10K LOC) down to 1.5-25 for large projects (10M LOC) — it's size-dependent, not a single number.
 
 My 2013 baseline isn't cherry-picked. It's normal for a part-time coder with a day job. If you think the right baseline is 50 (3.5x higher), the 2026 multiple drops from 810x to 228x. Still high.
 
@@ -97,7 +97,7 @@ This is the most legitimate critique, channeled through the [David Cramer](https
 
 Fair. Here's the data:
 
-**Reverts.** `git log --grep="^revert" --grep="^Revert" -i` across the 15 active repos: 7 reverts in 351 commits = **2.0% revert rate**. For context, Kubernetes, Rails, and Django historically run 1.5-3%. I'm in the band, not above it.
+**Reverts.** `git log --grep="^revert" --grep="^Revert" -i` across the 15 active repos: 7 reverts in 351 commits = **2.0% revert rate**. For context, mature OSS codebases typically run 1-3%. Run the same command on whatever you consider the bar and compare.
 
 **Post-merge fixes.** Commits matching `^fix:` that reference a prior commit on the same branch: 22 of 351 = **6.3%**. Healthy fix cycle. A zero-fix rate would mean I'm not catching my own mistakes.
 
