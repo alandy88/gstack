@@ -409,18 +409,18 @@ describe("render() — no double HTML entity escaping", () => {
   }
 
   test('ampersand in <title> renders as exactly one "&amp;"', () => {
-    const result = render({ markdown: `# Herbert & Garry\n\nBody.` });
-    expect(result.html).toContain("<title>Herbert &amp; Garry</title>");
+    const result = render({ markdown: `# Faber & Faber\n\nBody.` });
+    expect(result.html).toContain("<title>Faber &amp; Faber</title>");
     expect(result.html).not.toContain("&amp;amp;");
   });
 
   test("TOC entries have no double-escape when a heading contains '&'", () => {
     const result = render({
-      markdown: `# Doc\n\n## Herbert & Garry\n\nBody.\n\n## Other\n\nMore.`,
+      markdown: `# Doc\n\n## Faber & Faber\n\nBody.\n\n## Other\n\nMore.`,
       toc: true,
     });
     // TOC renders the heading text through escapeHtml; must be single-escaped.
-    expect(result.html).toContain("Herbert &amp; Garry");
+    expect(result.html).toContain("Faber &amp; Faber");
     expect(result.html).not.toContain("&amp;amp;");
   });
 

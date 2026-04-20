@@ -2,9 +2,9 @@
 
 ## [1.4.1.0] - 2026-04-20
 
-## **/make-pdf goes from "demo-quality" to "actually ship this to a VC partner."**
+## **Three visible bugs in v1.4.0.0 /make-pdf, all fixed.**
 
-Three visible bugs in the v1.4.0.0 release made the output look broken. Page footers showed "6 of 8" twice on every page because Chromium's native footer and our print CSS were both rendering numbers. A markdown title containing `&` rendered as `Herbert &amp;amp; Garry` in `<title>` and TOC entries, because the extractors stripped tags but forgot to decode entities. On Linux (Docker, CI, servers), body text fell through to DejaVu Sans because neither Helvetica nor Arial is installed by default, and nothing in the font stack caught that. This release fixes all three and extends the fix beyond the obvious symptom each time.
+Page footers showed "6 of 8" twice on every page because Chromium's native footer and our print CSS were both rendering numbers. A markdown title containing `&` rendered as `Faber &amp;amp; Faber` in `<title>` and TOC entries, because the extractors stripped tags but forgot to decode entities. On Linux (Docker, CI, servers), body text fell through to DejaVu Sans because neither Helvetica nor Arial is installed by default, and nothing in the font stack caught that. This release fixes all three and extends the fix beyond the obvious symptom each time.
 
 ### The numbers that matter
 
@@ -13,7 +13,7 @@ All three bugs were caught and expanded in review before any code was written. T
 | Surface | Before (v1.4.0.0) | After (v1.4.1.0) |
 |---------|-------------------|-----------------|
 | Page footer | "6 of 8" stacked twice | "6 of 8" once |
-| `# Herbert & Garry` in `<title>` | `Herbert &amp;amp; Garry` | `Herbert &amp; Garry` |
+| `# Faber & Faber` in `<title>` | `Faber &amp;amp; Faber` | `Faber &amp; Faber` |
 | TOC entry with `&` | Double-escaped | Single-escaped |
 | `&#169;` (copyright) in H1 | Broken | Decodes to `©` |
 | `--no-page-numbers` CLI flag | Silently did nothing | Actually suppresses page numbers |
@@ -39,7 +39,7 @@ Page numbers are now controlled by one flag from CLI to CSS, with the custom-foo
 - **Page numbers no longer render twice on every page.** Chromium's native footer used to layer on top of our `@page @bottom-center` CSS. Now CSS is the single source of truth; Chromium native numbering is off unconditionally.
 - **`--no-page-numbers` works end-to-end.** The CLI flag now reaches the CSS layer via `RenderOptions.pageNumbers`. Previously it died at the orchestrator and the CSS kept rendering numbers regardless.
 - **`--footer-template` cleanly replaces the stock footer.** Passing a custom footer now also suppresses the CSS page numbers, preserving the original "custom footer wins" semantic that existed before Bug 1 collided with it.
-- **HTML entities in titles, cover pages, and TOC entries render correctly.** A markdown heading like `# Herbert & Garry` renders as `Herbert &amp; Garry` in `<title>` (single-escaped) instead of `Herbert &amp;amp; Garry` (double-escaped). Covers both extractor call sites: `extractFirstHeading` (title + cover) and `extractHeadings` (TOC).
+- **HTML entities in titles, cover pages, and TOC entries render correctly.** A markdown heading like `# Faber & Faber` renders as `Faber &amp; Faber` in `<title>` (single-escaped) instead of `Faber &amp;amp; Faber` (double-escaped). Covers both extractor call sites: `extractFirstHeading` (title + cover) and `extractHeadings` (TOC).
 - **Numeric HTML entities decode too.** `&#169;` in an H1 now renders as `©` in the PDF title. Decimal and hex numeric entities both supported.
 - **Linux PDFs render in Liberation Sans instead of DejaVu Sans.** Font stacks in all four print-CSS slots (body, running header, page number, CONFIDENTIAL label) now include `"Liberation Sans"` between Helvetica and Arial. Metric-compatible, SIL OFL 1.1, installs via `fonts-liberation`.
 
