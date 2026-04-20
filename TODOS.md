@@ -305,18 +305,20 @@ enabled. Default behavior unchanged (2-of-2 testsavant + transcript).
 
 #### ~~TestSavantAI + DeBERTa-v3 ensemble~~ — SHIPPED opt-in (see entry above)
 
-#### Read/Glob/Grep tool-output injection coverage (P2)
+#### ~~Read/Glob/Grep tool-output injection coverage (P2)~~ — SHIPPED
 
-**What:** Scan content entering Claude's context via Read, Glob, Grep tools in addition to
-browse commands. Codex flagged this in CEO review: "untrusted repo content read via
-Read/Glob/Grep enters Claude's context."
+Commits f2e80dd7 + 0098d574: sidebar-agent.ts now scans tool outputs from
+Read, Glob, Grep, WebFetch, and Bash via `SCANNED_TOOLS` set. Content >= 32
+chars runs through the ML ensemble; BLOCK verdict kills the session and
+emits security_event. The content-security.ts envelope path was already
+wrapping browse-command output; this extension closes the non-browse path
+Codex flagged.
 
-**Why:** The sidebar agent has access to Read/Glob/Grep tools. If a project has a file
-with injected instructions, Claude reads it and acts on it — the content-security.ts
-envelope wrapping doesn't fire on non-browse-output paths.
-
-**Effort:** M (human: ~1w / CC: ~2h)
-**Priority:** P2
+During /ship for v1.4.0.0 this path got additional hardening (commit
+407c36b4 + 88b12c2b + c51ebdf4): transcript classifier now receives the
+tool output text (was empty before), and combineVerdict accepts a
+`toolOutput: true` opt that blocks on a single ML classifier at BLOCK
+threshold (user-input default unchanged for SO-FP mitigation).
 
 #### ~~Adversarial + integration + smoke-bench test suites (P1)~~ — SHIPPED
 

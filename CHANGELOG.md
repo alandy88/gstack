@@ -22,7 +22,7 @@ If an attack fires, a centered alert-heavy banner appears, "Session terminated, 
 | Model size shipped | 0 | **22MB** (TestSavantAI BERT-small, int8 quantized) |
 | Optional ensemble model | none | **721MB DeBERTa-v3** (opt-in via `GSTACK_SECURITY_ENSEMBLE=deberta`) |
 | BLOCK decision rule | none | **2-of-2 ML agreement** (or 2-of-3 with ensemble), prevents single-classifier false positives from killing sessions |
-| Tests covering security surface | 12 | **243** (25 foundation + 23 adversarial + 10 integration + 9 classifier + 7 Playwright + 3 bench + 6 bun-native + others) |
+| Tests covering security surface | 12 | **280** (25 foundation + 23 adversarial + 10 integration + 9 classifier + 7 Playwright + 3 bench + 6 bun-native + 15 source-contracts + 11 adversarial-fix regressions + others) |
 | Attack telemetry aggregation | local file only | **community-pulse edge function + gstack-security-dashboard CLI** |
 
 ### What actually ships
@@ -37,6 +37,17 @@ If an attack fires, a centered alert-heavy banner appears, "Session terminated, 
 * **BrowseSafe-Bench smoke harness** — 200 cases from Perplexity's 3,680-case adversarial dataset, cached hermetically, gates on signal separation
 * **Live Playwright integration test** pins the L1 through L6 defense-in-depth contract
 * **Bun-native classifier research skeleton** plus design doc — WordPiece tokenizer matching transformers.js output, benchmark harness, FFI roadmap for future 5ms native inference
+
+### Hardening during ship
+
+Two independent adversarial reviewers (Claude subagent and Codex/gpt-5.4) converged on four bypass paths. All four fixed before merge:
+
+* **Canary stream-chunk split** — rolling-buffer detection across consecutive `text_delta` and `input_json_delta` events. Previously `.includes()` ran per-chunk, so an attacker could ask Claude to emit the canary split across two deltas and evade the check.
+* **Snapshot command bypass** — `$B snapshot` emits ARIA-name output from the page, but was missing from `PAGE_CONTENT_COMMANDS`, so malicious aria-labels flowed to Claude without the trust-boundary envelope every other read path gets.
+* **Tool-output single-layer BLOCK** — `combineVerdict` now accepts `{ toolOutput: true }`. On tool-result scans the Stack Overflow FP concern doesn't apply (content wasn't user-authored), so a single ML classifier at BLOCK threshold now blocks directly instead of degrading to WARN.
+* **Transcript classifier tool-output context** — Haiku previously saw only `user_message + tool_calls` (empty input) on tool-result scans, so only testsavant_content got a signal. Now receives the actual tool output text and can vote.
+
+Also: attribute-injection fix in `escapeHtml` (escapes `"` and `'` now), `GSTACK_SECURITY_OFF=1` is now a real gate in `loadTestsavant`/`loadDeberta` (not just a doc promise), device salt cached in-process so FS-unwritable environments don't break hash correlation, tool-use registry entries evicted on `tool_result` (memory leak fix), dashboard uses `jq` for brace-balanced JSON parse when available.
 
 ### Env knobs
 
