@@ -72,13 +72,16 @@ describe('Server auth security', () => {
     expect(historyBlock).not.toContain("'*'");
   });
 
-  // Test 6: /activity/stream requires auth (inline Bearer or ?token= check)
+  // Test 6: /activity/stream requires auth via Bearer OR view-only session cookie
+  // (N1: ?token= query param was dropped in v1.6.0.0 — URLs leak to logs/referer)
   test('/activity/stream requires authentication with inline token check', () => {
     const streamBlock = sliceBetween(SERVER_SRC, "url.pathname === '/activity/stream'", "url.pathname === '/activity/history'");
     expect(streamBlock).toContain('validateAuth');
-    expect(streamBlock).toContain('AUTH_TOKEN');
+    expect(streamBlock).toContain('validateSseSessionToken');
     // Should not have wildcard CORS for the SSE stream
     expect(streamBlock).not.toContain("Access-Control-Allow-Origin': '*'");
+    // ?token= query param must NOT be accepted anymore
+    expect(streamBlock).not.toContain("searchParams.get('token')");
   });
 
   // Test 7: /command accepts scoped tokens (not just root)

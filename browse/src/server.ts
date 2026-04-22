@@ -42,6 +42,10 @@ import { inspectElement, modifyStyle, resetModifications, getModificationHistory
 // fail posix_spawn on all executables including /bin/bash)
 import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
 import { logTunnelDenial } from './tunnel-denial-log';
+import {
+  mintSseSessionToken, validateSseSessionToken, extractSseCookie,
+  buildSseSetCookie, SSE_COOKIE_NAME,
+} from './sse-session-cookie';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
@@ -1910,6 +1914,37 @@ async function start() {
         }
       }
 
+      // ─── SSE session cookie mint (auth required) ──────────────────
+      //
+      // Issues a short-lived view-only token in an HttpOnly SameSite=Strict
+      // cookie so EventSource calls can authenticate without putting the
+      // root token in a URL. The returned cookie is valid ONLY on the SSE
+      // endpoints (/activity/stream, /inspector/events); it is not a
+      // scoped token and cannot be used against /command.
+      //
+      // The extension calls this once at bootstrap with the root Bearer
+      // header, then opens EventSource with `withCredentials: true` which
+      // sends the cookie back automatically.
+      if (url.pathname === '/sse-session' && req.method === 'POST') {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const minted = mintSseSessionToken();
+        return new Response(JSON.stringify({
+          expiresAt: minted.expiresAt,
+          cookie: SSE_COOKIE_NAME,
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': buildSseSetCookie(minted.token),
+          },
+        });
+      }
+
       // Refs endpoint — auth required, does NOT reset idle timer
       if (url.pathname === '/refs') {
         if (!validateAuth(req)) {
@@ -1931,9 +1966,14 @@ async function start() {
 
       // Activity stream — SSE, auth required, does NOT reset idle timer
       if (url.pathname === '/activity/stream') {
-        // Inline auth: accept Bearer header OR ?token= query param (EventSource can't send headers)
-        const streamToken = url.searchParams.get('token');
-        if (!validateAuth(req) && streamToken !== AUTH_TOKEN) {
+        // Auth: Bearer header OR view-only SSE session cookie (EventSource
+        // can't send Authorization headers, so the extension fetches a cookie
+        // via POST /sse-session first, then opens EventSource with
+        // withCredentials: true). The ?token= query param is NO LONGER
+        // accepted — URLs leak to logs/referer/history. See N1 in the
+        // v1.6.0.0 security wave plan.
+        const cookieToken = extractSseCookie(req);
+        if (!validateAuth(req) && !validateSseSessionToken(cookieToken)) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), {
             status: 401,
             headers: { 'Content-Type': 'application/json' },
@@ -2563,8 +2603,10 @@ async function start() {
 
       // GET /inspector/events — SSE for inspector state changes (auth required)
       if (url.pathname === '/inspector/events' && req.method === 'GET') {
-        const streamToken = url.searchParams.get('token');
-        if (!validateAuth(req) && streamToken !== AUTH_TOKEN) {
+        // Same auth model as /activity/stream: Bearer OR view-only cookie.
+        // ?token= query param dropped (see N1 in the v1.6.0.0 security plan).
+        const cookieToken = extractSseCookie(req);
+        if (!validateAuth(req) && !validateSseSessionToken(cookieToken)) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), {
             status: 401, headers: { 'Content-Type': 'application/json' },
           });
