@@ -35,36 +35,85 @@ const runId = new Date().toISOString().replace(/[:.]/g, '').replace('T', '-').sl
 
 // --- Helpers ---
 
-/** Regenerate SKILL.md files at the given model into a scratch root, return that root. */
-function regenSkillsAt(model: string, suffix: string): string {
+/** Skills that must exist as individual .claude/skills/{name}/SKILL.md files
+ *  for Claude Code's auto-discovery to treat them as invokable via Skill tool.
+ *  Matches the pattern in skill-routing-e2e.test.ts. */
+const INSTALLED_SKILLS = [
+  'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'plan-eng-review',
+  'plan-design-review', 'design-review', 'design-consultation', 'retro',
+  'document-release', 'investigate', 'office-hours', 'browse',
+];
+
+/** Write a scratch root with:
+ *   - Per-skill SKILL.md files under .claude/skills/ (so Skill tool sees them)
+ *   - Project CLAUDE.md with explicit routing rules AND (optionally) the
+ *     4.7 overlay content directly inlined so `claude -p` sees it
+ *   - git init
+ *
+ *  `includeOverlay` controls whether the opus-4-7 nudges (Fan out, Literal,
+ *  etc.) get inlined into CLAUDE.md — this is the A/B axis for the fanout
+ *  test. `claude -p` doesn't auto-load SKILL.md content, so CLAUDE.md is
+ *  the only way to make the overlay visible to the model in this test
+ *  harness.
+ */
+function mkEvalRoot(suffix: string, includeOverlay: boolean): string {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `opus47-${suffix}-`));
 
-  // Bun runtime: run gen-skill-docs in a fresh copy of the repo so we don't
-  // pollute the main working tree. We need: SKILL.md.tmpl files, scripts/,
-  // model-overlays/, hosts/. Easiest is to run from ROOT and copy outputs.
+  // Regenerate at opus-4-7 so the per-skill SKILL.md files reflect that
+  // model's overlay. If includeOverlay is false we'll re-regen at default
+  // later just for the root SKILL.md copy. For individual skills, opus-4-7
+  // content doesn't matter for the routing test (we only need discovery).
   const result = spawnSync(
     'bun',
-    ['run', 'scripts/gen-skill-docs.ts', '--model', model],
+    ['run', 'scripts/gen-skill-docs.ts', '--model', includeOverlay ? 'opus-4-7' : 'claude'],
     { cwd: ROOT, stdio: 'pipe', encoding: 'utf-8', timeout: 60_000 },
   );
   if (result.status !== 0) {
-    throw new Error(`gen-skill-docs failed for --model ${model}: ${result.stderr}`);
+    throw new Error(`gen-skill-docs failed: ${result.stderr}`);
   }
 
-  // Copy the top-level generated SKILL.md into the scratch dir (under
-  // .claude/skills/gstack/ which is where Claude looks for project skills).
-  const skillDir = path.join(tmp, '.claude', 'skills', 'gstack');
-  fs.mkdirSync(skillDir, { recursive: true });
-  fs.copyFileSync(path.join(ROOT, 'SKILL.md'), path.join(skillDir, 'SKILL.md'));
+  // Install per-skill SKILL.md files for Skill tool discovery.
+  const skillsDir = path.join(tmp, '.claude', 'skills');
+  for (const skill of INSTALLED_SKILLS) {
+    const src = path.join(ROOT, skill, 'SKILL.md');
+    if (!fs.existsSync(src)) continue;
+    const destDir = path.join(skillsDir, skill);
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(src, path.join(destDir, 'SKILL.md'));
+  }
 
-  // Minimal project context
-  fs.writeFileSync(
-    path.join(tmp, 'CLAUDE.md'),
-    `# Project\n\nSee .claude/skills/gstack/SKILL.md for skill definitions.\n`,
-  );
+  // Extract the opus-4-7 model-overlay content from the checked-in file
+  // so we can inline it into CLAUDE.md when includeOverlay is true.
+  const overlayText = includeOverlay
+    ? fs.readFileSync(path.join(ROOT, 'model-overlays', 'opus-4-7.md'), 'utf-8')
+        .replace(/\{\{INHERIT:claude\}\}\s*/, '')
+        .trim()
+    : '';
+
+  // Project CLAUDE.md. Explicit routing rules so the agent reaches for
+  // Skill tool on matching prompts, plus the optional overlay.
+  const routingBlock = `## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool
+as your FIRST action. The skill has multi-step workflows, checklists, and quality
+gates that produce better results than an ad-hoc answer. When in doubt, invoke.
+
+- Bugs, errors, "why is this broken", "wtf" → invoke investigate
+- Ship, deploy, "send it", create a PR → invoke ship
+- QA, test the site, "does this work" → invoke qa
+- Code review, check my diff → invoke review
+- Product ideas, brainstorming, "is this worth building" → invoke office-hours
+- Architecture, "does this design make sense" → invoke plan-eng-review
+- Design system, visual polish → invoke design-review
+- Weekly retro, what did we ship → invoke retro`;
+
+  const claudeMd = includeOverlay
+    ? `# Project\n\n${overlayText}\n\n${routingBlock}\n`
+    : `# Project\n\n${routingBlock}\n`;
+
+  fs.writeFileSync(path.join(tmp, 'CLAUDE.md'), claudeMd);
   fs.writeFileSync(path.join(tmp, 'package.json'), '{"name":"opus47-eval"}');
 
-  // git init so any downstream git-aware logic doesn't blow up
   const git = (args: string[]) =>
     spawnSync('git', args, { cwd: tmp, stdio: 'pipe', timeout: 5_000 });
   git(['init']);
@@ -111,13 +160,22 @@ const ROUTING_CASES: RoutingCase[] = [
 describeE2E('Opus 4.7 overlay behavior evals', () => {
   afterAll(() => {
     evalCollector?.finalize();
+    // Restore working tree: mkEvalRoot runs `gen-skill-docs` with various
+    // --model flags, leaving the in-repo SKILL.md files generated at
+    // whichever model ran last. Reset to the default (claude) so the tree
+    // matches what would be checked in.
+    spawnSync('bun', ['run', 'scripts/gen-skill-docs.ts'], {
+      cwd: ROOT,
+      stdio: 'pipe',
+      timeout: 60_000,
+    });
   });
 
   test(
     'fanout: overlay ON emits >= parallel calls vs overlay OFF on 3-file investigate task',
     async () => {
-      const armA = regenSkillsAt('opus-4-7', 'on');
-      const armB = regenSkillsAt('claude', 'off');
+      const armA = mkEvalRoot('on', true);
+      const armB = mkEvalRoot('off', false);
 
       // Populate three tiny independent files in each arm. The prompt asks
       // the agent to read all three and report. Opus 4.7 (without nudge)
@@ -205,7 +263,7 @@ describeE2E('Opus 4.7 overlay behavior evals', () => {
       // Single SKILL.md tree shared by all cases. We run claude-opus-4-7 with
       // tool access to Skill; measure whether the first tool call is Skill(..)
       // and if so, which skill.
-      const root = regenSkillsAt('opus-4-7', 'routing');
+      const root = mkEvalRoot('routing', true);
 
       try {
         const results = await Promise.all(
