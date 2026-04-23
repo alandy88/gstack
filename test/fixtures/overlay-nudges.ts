@@ -242,6 +242,105 @@ export const OVERLAY_FIXTURES: OverlayFixture[] = [
     metric: (r) => firstTurnParallelism(r.assistantTurns[0]),
     pass: fanoutPass,
   },
+
+  // -------------------------------------------------------------------------
+  // claude.md / "Dedicated tools over Bash"
+  // -------------------------------------------------------------------------
+  {
+    id: 'claude-dedicated-tools-vs-bash',
+    overlayPath: 'model-overlays/claude.md',
+    model: 'claude-opus-4-7',
+    trials: 10,
+    concurrency: 3,
+    direction: 'lower_is_better',
+    setupWorkspace: (dir) => {
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src', 'index.ts'), "export const x = 1;\n");
+      fs.writeFileSync(path.join(dir, 'src', 'util.ts'), "export function util() { return 42; }\n");
+      fs.writeFileSync(path.join(dir, 'src', 'types.ts'), "export type Foo = { a: number };\n");
+      fs.writeFileSync(path.join(dir, 'src', 'config.ts'), "export const c = { n: 'demo' };\n");
+      fs.writeFileSync(path.join(dir, 'src', 'api.ts'), "export async function fetchFoo() { return null; }\n");
+    },
+    userPrompt:
+      "List every TypeScript file under src/ and tell me what each exports. " +
+      "You may use any tools available.",
+    // Metric: total Bash tool_use count across the whole session.
+    // The overlay says "prefer Read/Glob/Grep over cat/find/grep shell."
+    // A model following that should emit Glob + Read, not Bash ls/find/cat.
+    metric: bashToolCallCount,
+    pass: lowerIsBetter20Pct,
+  },
+
+  // -------------------------------------------------------------------------
+  // opus-4-7.md / "Effort-match the step"
+  // -------------------------------------------------------------------------
+  {
+    id: 'opus-4-7-effort-match-trivial',
+    overlayPath: 'model-overlays/opus-4-7.md',
+    model: 'claude-opus-4-7',
+    trials: 10,
+    concurrency: 3,
+    direction: 'lower_is_better',
+    maxTurns: 8,
+    setupWorkspace: (dir) => {
+      fs.writeFileSync(
+        path.join(dir, 'config.json'),
+        '{"name": "demo", "version": "1.0.0"}\n',
+      );
+    },
+    userPrompt: "What's the version in config.json?",
+    // Metric: turns used to reach a result.
+    // The overlay says "simple lookups don't need deep reasoning."
+    // A trivial prompt like this should complete in 2 turns
+    // (Read, respond). Extended deliberation bumps this up.
+    metric: turnsToCompletion,
+    pass: lowerIsBetter20Pct,
+  },
+
+  // -------------------------------------------------------------------------
+  // opus-4-7.md / "Literal interpretation awareness"
+  // -------------------------------------------------------------------------
+  {
+    id: 'opus-4-7-literal-interpretation',
+    overlayPath: 'model-overlays/opus-4-7.md',
+    model: 'claude-opus-4-7',
+    trials: 10,
+    concurrency: 3,
+    direction: 'higher_is_better',
+    // Allow Edit and Write so the model can fix the tests.
+    allowedTools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write'],
+    maxTurns: 15,
+    setupWorkspace: (dir) => {
+      // Three failing test files. The "obvious" one is named first; the
+      // other two require the model to enumerate to notice them.
+      fs.writeFileSync(
+        path.join(dir, 'auth.test.ts'),
+        "import { test, expect } from 'bun:test';\n" +
+          "test('auth returns true', () => { expect(1).toBe(2); });\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'billing.test.ts'),
+        "import { test, expect } from 'bun:test';\n" +
+          "test('billing computes total', () => { expect('ten').toBe('10'); });\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'notifications.test.ts'),
+        "import { test, expect } from 'bun:test';\n" +
+          "test('notifications fire on save', () => { expect([1,2]).toEqual([1,2,3]); });\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'README.md'),
+        "# demo\n\nSmall project with three failing test files.\n",
+      );
+    },
+    userPrompt: "Fix the failing tests.",
+    // Metric: number of unique test files the model edited/wrote.
+    // The overlay says "fix ALL failing tests, not just the obvious one."
+    // Overlay-ON should touch all 3 test files. Overlay-OFF might stop
+    // at the first one after making it pass.
+    metric: uniqueFilesEdited,
+    pass: higherIsBetter20Pct,
+  },
 ];
 
 // Validate at module load so a broken fixture fails fast at test startup,
