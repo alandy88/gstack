@@ -27,6 +27,20 @@
 #     real value — we build from db_user/db_host/db_port/db_name instead).
 #     Output: {"ref","pooler_url"}.
 #
+#   list-orphans [--name-prefix <str>]
+#     GET /v1/projects. Filter to projects whose name starts with --name-prefix
+#     (default "gbrain") AND whose ref does NOT match the one in the local
+#     active ~/.gbrain/config.json pooler URL. Those are the gbrain-shaped
+#     projects that aren't pointed at by a working local config — candidates
+#     for /setup-gbrain --cleanup-orphans.
+#     Output: {"active_ref","orphans":[{"ref","name","created_at","region"}, ...]}.
+#
+#   delete-project <ref>
+#     DELETE /v1/projects/{ref}. Destructive, one-way — callers must
+#     double-confirm before invoking. This bin performs NO confirmation
+#     prompt; the skill's UI layer owns that responsibility.
+#     Output: {"deleted_ref"}.
+#
 # Secrets discipline (D8, D10, D11):
 #   - SUPABASE_ACCESS_TOKEN is read from env; never accepted as argv.
 #   - DB_PASS (for `create` and `pooler-url`) is read from env; never argv.
@@ -353,12 +367,81 @@ cmd_pooler_url() {
   fi
 }
 
+cmd_list_orphans() {
+  local name_prefix="gbrain"
+  local json_mode=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name-prefix) name_prefix="$2"; shift 2 ;;
+      --json) json_mode=true; shift ;;
+      --*) die "list-orphans: unknown flag: $1" ;;
+      *) die "list-orphans: unexpected arg: $1" ;;
+    esac
+  done
+
+  require_jq; require_curl; require_pat
+  local all
+  all=$(api_call GET projects)
+
+  # Extract the active brain's ref from ~/.gbrain/config.json if present.
+  # Pooler URL format: postgresql://postgres.<ref>:<pw>@...
+  local active_ref="null"
+  local gbrain_cfg="$HOME/.gbrain/config.json"
+  if [ -f "$gbrain_cfg" ]; then
+    local url
+    url=$(jq -r '.database_url // empty' "$gbrain_cfg" 2>/dev/null || true)
+    if [ -n "$url" ]; then
+      # Extract user portion before the colon: postgresql://USER:pw@...
+      local user
+      user=$(printf '%s' "$url" | sed -E 's|^[a-z]+://([^:]+):.*$|\1|')
+      # User format: postgres.<ref> — pull ref suffix
+      case "$user" in
+        postgres.*)
+          local ref="${user#postgres.}"
+          active_ref=$(jq -Rn --arg r "$ref" '$r')
+          ;;
+      esac
+    fi
+  fi
+
+  local orphans
+  orphans=$(printf '%s' "$all" | jq \
+    --arg prefix "$name_prefix" \
+    --argjson active "$active_ref" \
+    '[.[]
+       | select(.name | startswith($prefix))
+       | select(.ref != $active)
+       | {ref: .ref, name: .name, created_at: .created_at, region: .region}]')
+
+  jq -n --argjson active "$active_ref" --argjson orphans "$orphans" \
+    '{active_ref: $active, orphans: $orphans}'
+}
+
+cmd_delete_project() {
+  local ref=""
+  local json_mode=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json_mode=true; shift ;;
+      --*) die "delete-project: unknown flag: $1" ;;
+      *) ref="$1"; shift ;;
+    esac
+  done
+  [ -z "$ref" ] && die "delete-project: missing <ref>"
+
+  require_jq; require_curl; require_pat
+  api_call DELETE "projects/$ref" >/dev/null
+  jq -n --arg ref "$ref" '{deleted_ref: $ref}'
+}
+
 case "${1:-}" in
-  list-orgs)   shift; cmd_list_orgs "$@" ;;
-  create)      shift; cmd_create "$@" ;;
-  wait)        shift; cmd_wait "$@" ;;
-  pooler-url)  shift; cmd_pooler_url "$@" ;;
-  --help|-h|help) sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//' ;;
-  "")  die "usage: gstack-gbrain-supabase-provision {list-orgs|create|wait|pooler-url|--help}" ;;
+  list-orgs)        shift; cmd_list_orgs "$@" ;;
+  create)           shift; cmd_create "$@" ;;
+  wait)             shift; cmd_wait "$@" ;;
+  pooler-url)       shift; cmd_pooler_url "$@" ;;
+  list-orphans)     shift; cmd_list_orphans "$@" ;;
+  delete-project)   shift; cmd_delete_project "$@" ;;
+  --help|-h|help)   sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//' ;;
+  "")  die "usage: gstack-gbrain-supabase-provision {list-orgs|create|wait|pooler-url|list-orphans|delete-project|--help}" ;;
   *)   die "unknown subcommand: $1" ;;
 esac
