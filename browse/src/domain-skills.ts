@@ -62,11 +62,16 @@ export interface DomainSkillRow {
 
 const PROMOTE_THRESHOLD = 3;
 
-const GSTACK_HOME = process.env.GSTACK_HOME || path.join(os.homedir(), '.gstack');
-const GLOBAL_FILE = path.join(GSTACK_HOME, 'global-domain-skills.jsonl');
+function gstackHome(): string {
+  return process.env.GSTACK_HOME || path.join(os.homedir(), '.gstack');
+}
+
+function globalFile(): string {
+  return path.join(gstackHome(), 'global-domain-skills.jsonl');
+}
 
 function projectFile(slug: string): string {
-  return path.join(GSTACK_HOME, 'projects', slug, 'learnings.jsonl');
+  return path.join(gstackHome(), 'projects', slug, 'learnings.jsonl');
 }
 
 // ─── Hostname normalization (T3) ──────────────────────────────
@@ -222,7 +227,7 @@ export async function readSkill(host: string, projectSlug: string): Promise<Read
     return { row: projectHit, source: 'project' };
   }
   // Global layer fallback
-  const globalRows = await readRows(GLOBAL_FILE);
+  const globalRows = await readRows(globalFile());
   const globalLatest = resolveLatest(globalRows);
   const globalHit = globalLatest.get(`global::${normalized}`);
   if (globalHit && globalHit.state === 'global') {
@@ -346,7 +351,7 @@ export async function promoteToGlobal(host: string, projectSlug: string): Promis
     flag_count: 0,
     updated_ts: now,
   };
-  await appendRow(GLOBAL_FILE, globalRow);
+  await appendRow(globalFile(), globalRow);
   return globalRow;
 }
 
@@ -356,7 +361,7 @@ export async function promoteToGlobal(host: string, projectSlug: string): Promis
  */
 export async function rollbackSkill(host: string, projectSlug: string, scope: SkillScope = 'project'): Promise<DomainSkillRow> {
   const normalized = normalizeHost(host);
-  const file = scope === 'project' ? projectFile(projectSlug) : GLOBAL_FILE;
+  const file = scope === 'project' ? projectFile(projectSlug) : globalFile();
   const rows = await readRows(file);
   const matching = rows.filter((r) => r.host === normalized && r.scope === scope && !r.tombstone);
   if (matching.length < 2) {
@@ -384,7 +389,7 @@ export async function rollbackSkill(host: string, projectSlug: string, scope: Sk
  */
 export async function listSkills(projectSlug: string): Promise<{ project: DomainSkillRow[]; global: DomainSkillRow[] }> {
   const projectRows = await readRows(projectFile(projectSlug));
-  const globalRows = await readRows(GLOBAL_FILE);
+  const globalRows = await readRows(globalFile());
   const projectLatest = Array.from(resolveLatest(projectRows).values());
   const globalLatest = Array.from(resolveLatest(globalRows).values()).filter((r) => r.state === 'global');
   return { project: projectLatest, global: globalLatest };
@@ -395,7 +400,7 @@ export async function listSkills(projectSlug: string): Promise<{ project: Domain
  */
 export async function deleteSkill(host: string, projectSlug: string, scope: SkillScope = 'project'): Promise<void> {
   const normalized = normalizeHost(host);
-  const file = scope === 'project' ? projectFile(projectSlug) : GLOBAL_FILE;
+  const file = scope === 'project' ? projectFile(projectSlug) : globalFile();
   const rows = await readRows(file);
   const latest = resolveLatest(rows);
   const current = latest.get(`${scope}::${normalized}`);
