@@ -6,6 +6,7 @@ import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand } from './commands';
+import { handleDomainSkillCommand } from './domain-skill-commands';
 import { validateNavigationUrl } from './url-validation';
 import { checkScope, type TokenInfo } from './token-registry';
 import { validateOutputPath, validateReadPath, SAFE_DIRECTORIES, escapeRegExp } from './path-security';
@@ -1017,6 +1018,17 @@ export async function handleMetaCommand(
       });
 
       return JSON.stringify(data, null, 2);
+    }
+
+    case 'domain-skill': {
+      return await handleDomainSkillCommand(args, bm);
+    }
+
+    case 'cdp': {
+      // Lazy import — cdp-bridge introduces module deps we don't want loaded
+      // for projects that never use the CDP escape hatch.
+      const { handleCdpCommand } = await import('./cdp-commands');
+      return await handleCdpCommand(args, bm);
     }
 
     default:
