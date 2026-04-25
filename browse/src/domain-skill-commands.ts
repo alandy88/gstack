@@ -26,7 +26,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import type { BrowserManager } from './browser-manager';
 import {
   deriveHostFromActiveTab,
@@ -40,29 +40,8 @@ import {
   type SkillScope,
 } from './domain-skills';
 import { runContentFilters } from './content-security';
-
-// ─── Project slug resolution (cached) ──────────────────────────
-
-let cachedSlug: string | null = null;
-
-function getCurrentProjectSlug(): string {
-  if (cachedSlug) return cachedSlug;
-  const explicit = process.env.GSTACK_PROJECT_SLUG;
-  if (explicit) {
-    cachedSlug = explicit;
-    return explicit;
-  }
-  // Fallback: invoke gstack-slug helper. May print "SLUG=value" or just "value".
-  try {
-    const slugBin = path.join(os.homedir(), '.claude/skills/gstack/bin/gstack-slug');
-    const out = execSync(slugBin, { encoding: 'utf8', timeout: 2000 }).trim();
-    const m = out.match(/SLUG="?([^"\n]+)"?/);
-    cachedSlug = m ? m[1]! : (out || 'unknown');
-  } catch {
-    cachedSlug = 'unknown';
-  }
-  return cachedSlug;
-}
+import { getCurrentProjectSlug } from './project-slug';
+import { logTelemetry } from './telemetry';
 
 // ─── Body input resolution ──────────────────────────────────────
 
@@ -142,6 +121,7 @@ async function handleSave(args: string[], bm: BrowserManager): Promise<string> {
   // injection time, not here (CLAUDE.md: classifier can't import in compiled binary).
   const filterResult = runContentFilters(body, page.url(), 'domain-skill-save');
   if (filterResult.blocked) {
+    logTelemetry({ event: 'domain_skill_save_blocked', host, reason: filterResult.message });
     throw new Error(
       `Save blocked: ${filterResult.message}\n` +
         'Cause: skill body trips L1-L3 content filters (likely contains URL blocklist match or ARIA injection patterns).\n' +
@@ -159,6 +139,7 @@ async function handleSave(args: string[], bm: BrowserManager): Promise<string> {
     source: 'agent',
     classifierScore: 0, // L4 deferred to load-time
   });
+  logTelemetry({ event: 'domain_skill_saved', host, scope: row.scope, state: row.state, bytes: body.length });
   return formatSavedOk(row, slug);
 }
 
