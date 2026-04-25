@@ -1,5 +1,133 @@
 # TODOS
 
+## Browser harness adoption (from v1.8.0.0)
+
+### P1: Self-authoring `$B` commands with out-of-process worker isolation
+
+**What:** Originally a CEO-review scope expansion (D3) for v1.8.0.0: agents would write new `$B` commands when they hit gaps in the curated set. Codex outside-voice (T1) correctly identified that AST-based allowlist + approval gate alone cannot safely contain agent-authored TypeScript that runs inside the daemon (ambient globals like `globalThis`, `Function`, `eval`, constructor gadgets like `({}).constructor.constructor()`, decorators that execute at module init, top-level `await` that mutates state before approval, TOCTOU between approved-source and executed-bytes). The right design is out-of-process worker isolation with capability-passing IPC, not in-daemon execution.
+
+**Why:** The compounding vision is real. Domain skills proved the per-site notes pattern works (v1.8.0.0). Generalizing the pattern to commands themselves means agents extend gstack itself when they hit gaps, instead of falling back to `$B js` and never coming back. But the security model has to survive a serious red-team review before this ships.
+
+**Pros:** Full browser-harness "agents author their own tooling" insight captured. Moat widens: gstack becomes "self-healing Playwright daemon" with curated AND earned commands. Once shipped, every gap an agent hits becomes a reusable command for the next agent.
+
+**Cons:** Security model is real work (worker process, IPC, capability passing, observability across the boundary). Easily 2-3 weeks of additional work. Can also be argued out of scope: gstack's value IS rails/isolation/auditability, and even with isolation done right, agent-authored runtime code may not fit gstack's product positioning (Codex's strategic argument).
+
+**Context:** Telemetry from v1.8.0.0 (`cdp_method_denied` counter in `~/.gstack/analytics/browse-telemetry.jsonl`) will surface "what are agents trying to do that gstack doesn't expose" — that data informs whether self-authoring commands are actually needed, or whether telemetry-driven first-class command additions cover the gap. The dropped scope from v1.8.0.0 is recorded in commit `c2074f4d` review trail and `~/.claude/plans/system-instruction-you-are-working-drifting-alpaca.md`.
+
+**Effort:** L (human: ~2-3 weeks / CC: ~3-5 days, plus worker isolation design)
+**Priority:** P1
+**Depends on:** Out-of-process isolation design that survives a Codex challenge. Need real telemetry from v1.8.0.0 to know if the demand is there before investing.
+
+---
+
+### P2: Migrate `/learn` to SQLite
+
+**What:** The current `~/.gstack/projects/<slug>/learnings.jsonl` storage works (append-only, tolerant parser, idle compactor) but Codex outside-voice (T5) flagged JSONL as "the wrong primitive" for multi-writer canonical state: lost-update on rewrite, partial-line corruption on crash, no transactions. v1.8.0.0 hardened JSONL with flock + O_APPEND but the right long-term primitive is SQLite (which Bun has built in via `bun:sqlite`).
+
+**Why:** Domain skills now live in the same `learnings.jsonl` (per CEO D1 unification). As volume grows, the JSONL hardening compactor + tolerant parser approach becomes the long pole. SQLite gives atomic transactions, indexes (huge for hostname lookup), and crash-safety without a custom compactor.
+
+**Pros:** Atomic writes. Real schema. Fast indexed lookups by hostname/key/type. Crash-safe.
+
+**Cons:** Migration touches every consumer of `learnings.jsonl` — `/learn` scripts (`gstack-learnings-log`, `gstack-learnings-search`), domain-skills.ts read/write, gbrain-sync (which currently treats it as a flat file). Old `learnings.jsonl` files in the wild need a one-shot migration script.
+
+**Context:** The JSONL hardening in v1.8.0.0 was the right call for that release scope (preserve unification, not boil-the-ocean). But the failure modes are bounded, not eliminated. SQLite is the boil-the-ocean fix.
+
+**Effort:** M (human: ~1 week / CC: ~1 day)
+**Priority:** P2
+**Depends on:** v1.8.0.0 in production for ~1 month to measure JSONL pain (compactor frequency, partial-line drops, write contention).
+
+---
+
+### P2: Remove plan-mode handshake from `/plan-devex-review` SKILL.md.tmpl
+
+**What:** `/plan-devex-review` has a "Plan Mode Handshake" section at the top that contradicts the preamble's "Skill Invocation During Plan Mode" contract (which says AskUserQuestion satisfies plan mode's end-of-turn requirement). The handshake forces an extra exit-plan-mode step that no other interactive review skill needs. `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review` all run fine in plan mode without it.
+
+**Why:** Found during the v1.8.0.0 DevEx review. The inconsistency cost a turn and confused the flow. Either remove the handshake from `plan-devex-review` (clean fix, recommended) OR add it to every interactive skill for consistency.
+
+**Pros:** Fixes a real DX bug for anyone running `/plan-devex-review` in plan mode. Five-minute change.
+
+**Cons:** Need to think about WHY it was added in the first place — there may be context this TODO is missing.
+
+**Context:** The handshake section in `plan-devex-review/SKILL.md.tmpl` says it's needed because plan mode's "this supersedes any other instructions" warning could otherwise bypass the skill's per-finding STOP gates. But the same warning exists for the other review skills, and they all work fine because AskUserQuestion satisfies the end-of-turn contract.
+
+**Effort:** S (human: ~15 min / CC: ~5 min)
+**Priority:** P2
+**Depends on:** Nothing.
+
+---
+
+### P3: GBrain skillpack publishing for domain skills
+
+**What:** Domain skills are agent-authored notes per hostname. Right now they're per-machine or per-agent-repo. The natural compounding extension: publish curated skill packs to GBrain (`gstack-brain-sync`) so others can subscribe. "Louise's LinkedIn skills" or "Garry's GitHub skills" become packs anyone can pull.
+
+**Why:** v1.8.0.0 gets us per-machine compounding. Cross-user compounding is the network effect — every user contributes, every user benefits.
+
+**Pros:** Massive compounding potential. Hard part is trust/moderation (existing problem GBrain-sync has thought through).
+
+**Cons:** Publishing infra, signature/redaction model, moderation when packs go bad. Real plan needed.
+
+**Context:** GBrain-sync infra (v1.7.0.0) already does private cross-machine sync for the user's own data. Skillpack publishing is the public/shared layer on top of that.
+
+**Effort:** M (human: ~1 week / CC: ~1 day)
+**Priority:** P3
+**Depends on:** GBrain-sync stable in production. Some user demand signal first.
+
+---
+
+### P3: Replay/record demonstrated flows to domain-skills
+
+**What:** Watch a human drive a site once (record DOM events + screenshots + nav), generalize to a domain-skill. "Teach by showing." Different research dream than v1.8.0.0's per-site notes.
+
+**Why:** The highest-quality skill content is one a human demonstrated, not one the agent figured out from scratch. Pairs with skillpack publishing — recorded flows are the most valuable packs.
+
+**Pros:** Skill quality jumps. Some sites are too complex for an agent to figure out alone (multi-step OAuth, captcha-gated forms).
+
+**Cons:** Record fidelity vs. selector stability over time. DOM changes break recordings. Real research needed.
+
+**Context:** Browser-use has experimented with this. Playwright has a recorder. Codeception/Cypress recorders exist. None of them do the "generalize the recording into a markdown note" step.
+
+**Effort:** L (human: ~2-3 weeks / CC: ~2-3 days)
+**Priority:** P3
+**Depends on:** Probably its own `/office-hours` session before committing eng time.
+
+---
+
+### P3: `$B commands review` batch-mode UX
+
+**What:** Originally an alternative for the inline-on-first-use approval gate (DevEx D6 alternative C). Instead of approving each agent-authored command at first invocation, batch them: agent scaffolds many, human reviews `$B commands review` at a convenient time, approves/rejects in one pass.
+
+**Why:** If self-authoring commands ever ships (the P1 above), the inline approval at first-use can interrupt the agent mid-task. Batch review is friendlier for the human.
+
+**Pros:** Reduces interrupt frequency. Lets humans review with full context.
+
+**Cons:** Defers approval — agent can't use the new command until the human comes back. If the agent needs the command immediately, this is worse than inline.
+
+**Context:** Tied to the P1 above. Won't ship before that does.
+
+**Effort:** S (human: ~half day / CC: ~30 min)
+**Priority:** P3
+**Depends on:** P1 self-authoring `$B` commands.
+
+---
+
+### P3: Heuristic command-gap watcher
+
+**What:** Sidebar-agent watches the activity feed; when an agent repeats a similar action 3+ times (e.g., calls `$B js` with structurally similar arguments), suggest scaffolding a command. From DevEx D4 alternative C.
+
+**Why:** Closes the discoverability loop on self-authoring commands. Agent is most likely to write a command when it just hit the same friction multiple times.
+
+**Pros:** Surgical. Fires only when a command would have demonstrably helped. Uses real telemetry, not heuristics.
+
+**Cons:** False positives (legitimate repeated actions) feel intrusive. Hard to design without telemetry first.
+
+**Context:** Telemetry from v1.8.0.0 (`cdp_method_called`, `cdp_method_denied` counters) gives us the data to design this well. Don't design until we have ~1 month of production data.
+
+**Effort:** M (human: ~1 week / CC: ~1 day)
+**Priority:** P3
+**Depends on:** v1.8.0.0 telemetry in production. P1 self-authoring commands.
+
+---
+
 ## Context skills
 
 ### `/context-save --lane` + `/context-restore --lane` for parallel workstreams
