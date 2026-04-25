@@ -933,6 +933,40 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         console.error(`[browse] Sidebar agent failed to start: ${err.message}`);
         console.error(`[browse] Run manually: bun run ${agentScript}`);
       }
+
+      // Auto-start terminal agent (non-compiled, parallel to sidebar-agent).
+      // Owns the PTY WebSocket for the Terminal sidebar tab. Crash-isolated
+      // from the chat agent per codex outside-voice review.
+      let termAgentScript = path.resolve(__dirname, 'terminal-agent.ts');
+      if (!fs.existsSync(termAgentScript)) {
+        termAgentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'terminal-agent.ts');
+      }
+      try {
+        if (fs.existsSync(termAgentScript)) {
+          // Kill old terminal-agents so a stale port file can't trick the
+          // server into routing /pty-session at a dead listener.
+          try {
+            const { spawnSync } = require('child_process');
+            spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
+          } catch (err: any) {
+            if (err?.code !== 'ENOENT') throw err;
+          }
+          const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
+            cwd: config.projectDir,
+            env: {
+              ...process.env,
+              BROWSE_STATE_FILE: config.stateFile,
+              BROWSE_SERVER_PORT: String(newState.port),
+            },
+            stdio: ['ignore', 'ignore', 'ignore'],
+          });
+          termProc.unref();
+          console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
+        }
+      } catch (err: any) {
+        // Non-fatal: chat still works without the terminal agent.
+        console.error(`[browse] Terminal agent failed to start: ${err.message}`);
+      }
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);
       process.exit(1);

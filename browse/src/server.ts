@@ -46,6 +46,9 @@ import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
   buildSseSetCookie, SSE_COOKIE_NAME,
 } from './sse-session-cookie';
+import {
+  mintPtySessionToken, buildPtySetCookie, revokePtySessionToken,
+} from './pty-session-cookie';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
@@ -163,6 +166,52 @@ async function closeTunnel(): Promise<void> {
 function validateAuth(req: Request): boolean {
   const header = req.headers.get('authorization');
   return header === `Bearer ${AUTH_TOKEN}`;
+}
+
+/**
+ * Terminal-agent discovery. The non-compiled bun process at
+ * `browse/src/terminal-agent.ts` writes its chosen port to
+ * `<stateDir>/terminal-port` and the loopback handshake token to
+ * `<stateDir>/terminal-internal-token` once it boots. Read on demand —
+ * lazy so we don't break tests that don't spawn the agent.
+ */
+function readTerminalPort(): number | null {
+  try {
+    const f = path.join(path.dirname(config.stateFile), 'terminal-port');
+    const v = parseInt(fs.readFileSync(f, 'utf-8').trim(), 10);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch { return null; }
+}
+function readTerminalInternalToken(): string | null {
+  try {
+    const f = path.join(path.dirname(config.stateFile), 'terminal-internal-token');
+    const t = fs.readFileSync(f, 'utf-8').trim();
+    return t.length > 16 ? t : null;
+  } catch { return null; }
+}
+
+/**
+ * Push a freshly-minted PTY cookie token to the terminal-agent so its
+ * /ws upgrade can validate the cookie. Loopback POST authenticated with
+ * the internal token written by the agent at startup. Fire-and-forget;
+ * if the agent isn't up yet, the extension just retries /pty-session.
+ */
+async function grantPtyToken(token: string): Promise<boolean> {
+  const port = readTerminalPort();
+  const internal = readTerminalInternalToken();
+  if (!port || !internal) return false;
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/internal/grant`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${internal}`,
+      },
+      body: JSON.stringify({ token }),
+      signal: AbortSignal.timeout(2000),
+    });
+    return resp.ok;
+  } catch { return false; }
 }
 
 /** Extract bearer token from request. Returns the token string or null. */
@@ -1428,6 +1477,18 @@ async function shutdown(exitCode: number = 0) {
   } catch (err: any) {
     console.warn('[browse] Failed to kill sidebar-agent:', err.message);
   }
+  // Same for terminal-agent — it owns the PTY listener and would keep
+  // sitting on its port if we don't kill it.
+  try {
+    const { spawnSync } = require('child_process');
+    spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
+  } catch (err: any) {
+    console.warn('[browse] Failed to kill terminal-agent:', err.message);
+  }
+  // Best-effort cleanup of agent state files so a reconnect doesn't try to
+  // hit a dead port.
+  try { safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port')); } catch {}
+  try { safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token')); } catch {}
   // Clean up CDP inspector sessions
   try { detachSession(); } catch (err: any) {
     console.warn('[browse] Failed to detach CDP session:', err.message);
@@ -1681,9 +1742,55 @@ async function start() {
           // Source of truth is ~/.gstack/security/session-state.json, written
           // by sidebar-agent as the classifier warms up.
           security: getSecurityStatus(),
+          // Terminal-agent discovery. ONLY a port number — never a token.
+          // Tokens flow via the /pty-session HttpOnly cookie path. See
+          // `pty-session-cookie.ts` for the rationale (codex outside-voice
+          // finding #2: don't reuse this endpoint for shell auth).
+          terminalPort: readTerminalPort(),
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // ─── /pty-session — mint Terminal-tab WebSocket cookie ───────────
+      //
+      // The extension POSTs here with the bootstrap AUTH_TOKEN, gets back a
+      // short-lived HttpOnly cookie scoped to the terminal-agent's /ws
+      // upgrade. We push the cookie value to the agent over loopback so the
+      // upgrade can validate it. The cookie travels automatically with the
+      // browser's WebSocket upgrade because it's same-origin to the agent
+      // when the daemon binds 127.0.0.1. NEVER added to TUNNEL_PATHS — the
+      // tunnel surface 404s any /pty-session attempt by default-deny.
+      if (url.pathname === '/pty-session' && req.method === 'POST') {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const port = readTerminalPort();
+        if (!port) {
+          return new Response(JSON.stringify({
+            error: 'terminal-agent not ready',
+          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+        const minted = mintPtySessionToken();
+        const granted = await grantPtyToken(minted.token);
+        if (!granted) {
+          revokePtySessionToken(minted.token);
+          return new Response(JSON.stringify({
+            error: 'failed to grant terminal session',
+          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({
+          terminalPort: port,
+          expiresAt: minted.expiresAt,
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': buildPtySetCookie(minted.token),
+          },
         });
       }
 
