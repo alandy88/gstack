@@ -1,22 +1,54 @@
 # TODOS
 
-## Browser harness adoption (from v1.8.0.0)
+## Browser-skills follow-on (Phases 2-4)
 
-### P1: Self-authoring `$B` commands with out-of-process worker isolation
+### P1: Browser-skills Phase 2 — `/scrape` and `/automate` skill templates
 
-**What:** Originally a CEO-review scope expansion (D3) for v1.8.0.0: agents would write new `$B` commands when they hit gaps in the curated set. Codex outside-voice (T1) correctly identified that AST-based allowlist + approval gate alone cannot safely contain agent-authored TypeScript that runs inside the daemon (ambient globals like `globalThis`, `Function`, `eval`, constructor gadgets like `({}).constructor.constructor()`, decorators that execute at module init, top-level `await` that mutates state before approval, TOCTOU between approved-source and executed-bytes). The right design is out-of-process worker isolation with capability-passing IPC, not in-daemon execution.
+**What:** Phase 2 of the browser-skills design (`docs/designs/BROWSER_SKILLS_V1.md`). Two new gstack skills (`/scrape` for read-only flows, `/automate` for mutating flows) that prototype a flow via `$B` primitives, then offer the skillify approval gate that writes a Phase-1-shaped browser-skill to disk. Each generated skill carries its own copy of `browse-client.ts` in `_lib/`.
 
-**Why:** The compounding vision is real. Domain skills proved the per-site notes pattern works (v1.8.0.0). Generalizing the pattern to commands themselves means agents extend gstack itself when they hit gaps, instead of falling back to `$B js` and never coming back. But the security model has to survive a serious red-team review before this ships.
+**Why:** Phase 1 shipped the runtime — humans can hand-write deterministic browser scripts that gstack runs. Phase 2 unlocks the productivity gain: an agent that gets a flow right once via 20+ `$B` commands says "skillify it" and the script becomes a 200ms call forever after. Same skillify pattern Garry's articles describe, applied to the two browser activities (scraping + automation) most amenable to deterministic compression.
 
-**Pros:** Full browser-harness "agents author their own tooling" insight captured. Moat widens: gstack becomes "self-healing Playwright daemon" with curated AND earned commands. Once shipped, every gap an agent hits becomes a reusable command for the next agent.
+**Pros:** The 100x productivity gain lives here. Closes the loop: agents prototype, codify, then reach for the codified skill in future sessions instead of re-exploring. Replaces the original "self-authoring `$B` commands" P1 — same user-visible goal, no in-daemon isolation problem (skill scripts run as standalone Bun processes, never imported into the daemon).
 
-**Cons:** Security model is real work (worker process, IPC, capability passing, observability across the boundary). Easily 2-3 weeks of additional work. Can also be argued out of scope: gstack's value IS rails/isolation/auditability, and even with isolation done right, agent-authored runtime code may not fit gstack's product positioning (Codex's strategic argument).
+**Cons:** Two open design questions Phase 2 must close. (a) **How to synthesize the script.** The activity feed is lossy (Codex finding #6: in-memory ring buffer, redacted args, truncated results). Pick between a structured recorder OR re-prompting the agent to write from scratch using its own context. (b) **Bun runtime distribution** (Codex finding #7). Phase 1 sidesteps this because the bundled reference skill ships inside the gstack install. User-authored skills land on machines without Bun unless we ship a runtime alongside, compile to a self-contained binary, or use Node + the existing `cli.ts` pattern.
 
-**Context:** Telemetry from v1.8.0.0 (`cdp_method_denied` counter in `~/.gstack/analytics/browse-telemetry.jsonl`) will surface "what are agents trying to do that gstack doesn't expose" — that data informs whether self-authoring commands are actually needed, or whether telemetry-driven first-class command additions cover the gap. The dropped scope from v1.8.0.0 is recorded in commit `c2074f4d` review trail and `~/.claude/plans/system-instruction-you-are-working-drifting-alpaca.md`.
+**Context:** The Phase 1 architecture (3-tier lookup, scoped tokens, sibling SDK, frontmatter contract) is locked and exercised by the bundled `hackernews-frontpage` reference skill. Phase 2 plugs `/scrape` and `/automate` into that runtime — no new storage primitives needed.
 
-**Effort:** L (human: ~2-3 weeks / CC: ~3-5 days, plus worker isolation design)
+**Effort:** L (human: ~1-2 weeks / CC: ~2-3 days)
 **Priority:** P1
-**Depends on:** Out-of-process isolation design that survives a Codex challenge. Need real telemetry from v1.8.0.0 to know if the demand is there before investing.
+**Depends on:** Phase 1 shipped (this branch). Open: synthesis design + Bun runtime distribution.
+
+---
+
+### P2: Browser-skills Phase 3 — resolver injection at session start
+
+**What:** Mirror the domain-skill resolver at `browse/src/server.ts:722-743`. When a sidebar-agent session starts on a host with matching browser-skills, inject a list block telling the agent which skills exist for that host and how to invoke them (`$B skill run <name> --arg ...`). UNTRUSTED-wrapped via the existing L1-L6 security stack. Add `gstack-config browser_skillify_prompts` knob (default `off`) controlling end-of-task nudges in `/qa`, `/design-review`, etc. when activity feed shows ≥N commands on a single host AND no skill exists yet for that host+intent.
+
+**Why:** Without the resolver, browser-skills only work when the user explicitly types `$B skill run <name>`. With the resolver, agents auto-discover existing skills for the current host and reach for them instead of re-exploring. Same compounding pattern as domain-skills.
+
+**Pros:** Closes the discoverability gap. Agents that wouldn't know a skill exists now see it in their system prompt automatically. End-of-task nudges (opt-in via knob) catch the moments where skillify is most valuable.
+
+**Cons:** The resolver block lives in the system prompt and competes with other resolver blocks for prompt budget. Need to gate carefully so it doesn't fire on every host with a skill — only when the skill is plausibly relevant to the current task. v1.8.0.0 domain-skills handles this by only firing for the active tab's hostname; same pattern here.
+
+**Effort:** S (human: ~3 days / CC: ~4 hours)
+**Priority:** P2
+**Depends on:** Phase 2.
+
+---
+
+### P2: Browser-skills Phase 4 — eval infrastructure + fixture staleness + OS sandbox
+
+**What:** Three loosely-coupled extensions: (a) LLM-judge eval ("did the agent reach for the skill instead of re-exploring?"), classified `periodic` per `test/helpers/touchfiles.ts`. (b) Fixture-staleness detection — periodic comparison of bundled fixtures against live pages, flagging mismatches before they break tests silently. (c) OS-level FS sandbox for untrusted spawns: `sandbox-exec` profile on macOS, namespaces / seccomp on Linux. Drops in cleanly behind the existing trusted/untrusted contract (Phase 1 just stripped env; Phase 4 adds real FS isolation).
+
+**Why:** Phase 1's trust model has the daemon-side capability boundary right (scoped tokens) but the process-side env scrub is hygiene, not a sandbox (Codex finding #1). For genuinely untrusted skills (Phase 2 agent-authored), real FS isolation matters. Eval + fixture staleness keep the skill quality bar honest as flows drift.
+
+**Pros:** Closes the last credible attack surface from Codex finding #1 (FS read of `~/.ssh/id_rsa` etc.). Eval data tells us whether the resolver injection is actually working. Fixture staleness catches HTML drift before users.
+
+**Cons:** Three different concerns, three different design passes. Tempting to bundle. Resist: each can ship independently. OS sandbox is the hardest piece (macOS `sandbox-exec` is Apple-private but stable; Linux requires namespaces + bind mounts).
+
+**Effort:** L (human: ~2-3 weeks / CC: ~3-5 days)
+**Priority:** P2
+**Depends on:** Phase 2 (need agent-authored skills to motivate sandbox); Phase 3 (eval needs resolver injection).
 
 ---
 
