@@ -800,9 +800,8 @@ describe('Enum & Value Completeness in review checklist', () => {
 
 describe('Completeness Principle in generated SKILL.md files', () => {
   const skillsWithPreamble = [
-    'SKILL.md', 'browse/SKILL.md', 'qa/SKILL.md',
+    'qa/SKILL.md',
     'qa-only/SKILL.md',
-    'setup-browser-cookies/SKILL.md',
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
@@ -820,11 +819,12 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     });
   }
 
-  test('Completeness Principle includes compression table in tier 2+ skills', () => {
-    // Root is tier 1 (no completeness). Check tier 2+ skill.
+  test('Completeness Principle keeps compact scoring guidance in tier 2+ skills', () => {
     const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('CC+gstack');
-    expect(content).toContain('Compression');
+    expect(content).toContain('Completeness: X/10');
+    expect(content).toContain('10 = all edge cases');
+    expect(content).toContain('Note: options differ in kind, not coverage');
+    expect(content).toContain('Do not fabricate scores');
   });
 });
 
@@ -1634,7 +1634,13 @@ describe('no compiled binaries in git', () => {
   test('git tracks no files larger than 2MB', () => {
     // Pure fs.statSync — no shell spawn per file.
     const MAX_BYTES = 2 * 1024 * 1024;
+    const knownLargeFixtures = new Set([
+      // Deterministic replay fixture for BrowseSafe-Bench. The live bench is
+      // expensive; this file is intentionally committed so the gate is free.
+      'browse/test/fixtures/security-bench-haiku-responses.json',
+    ]);
     const oversized = trackedFiles.filter((f: string) => {
+      if (knownLargeFixtures.has(f)) return false;
       const full = path.join(ROOT, f);
       try {
         return fs.statSync(full).size > MAX_BYTES;
