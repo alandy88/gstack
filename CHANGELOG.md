@@ -1,5 +1,69 @@
 # Changelog
 
+## [1.9.0.0] - 2026-04-26
+
+## **Browser-skills land. Hand-write a deterministic browser script once, run it forever in 200ms instead of 30s of agent re-exploration.**
+
+`$B skill run hackernews-frontpage` returns 30 stories as JSON in 200ms. The agent doesn't snapshot, click, navigate, or parse. It runs the bundled script. That's the whole pitch for this release: codify a repeated browser flow once, then lean on the script forever.
+
+This release is the runtime layer. The bundled `hackernews-frontpage` reference skill proves it works end-to-end. Agent authoring (the `/scrape` and `/automate` skills that prototype a flow then offer to skillify it) lands in the next release.
+
+The architecture replaces the v1.8.0.0 P1 around "self-authoring `$B` commands." That P1 was blocked on Codex's T1 objection, agent-authored TypeScript can't be safely contained inside the daemon. This design sidesteps the entire isolation problem by running skill scripts *outside* the daemon as standalone Bun processes. Each script gets a per-spawn scoped capability token bound to the read+write command surface; the daemon root token never leaves the harness. The trust boundary is at the daemon, not at process-side env scrubbing, which Codex correctly flagged as security theater in the original draft.
+
+### What you can now do
+
+- **Run a bundled skill:** `$B skill run hackernews-frontpage` returns JSON.
+- **List what's available:** `$B skill list` walks three tiers (project > global > bundled) and prints the resolved tier inline.
+- **Test a skill against a fixture:** `$B skill test hackernews-frontpage` runs the bundled `script.test.ts` against a captured HTML snapshot, no live network.
+- **Read a skill's contract:** `$B skill show hackernews-frontpage` prints SKILL.md.
+- **Tombstone a user-tier skill:** `$B skill rm <name> [--global]` moves it to `.tombstones/<name>-<ts>/`. Bundled skills are read-only.
+
+### The numbers that matter
+
+Source: 121 new unit tests across `browse/test/skill-token.test.ts`, `browse-client.test.ts`, `browser-skills-storage.test.ts`, `browser-skill-commands.test.ts`, `browser-skills/hackernews-frontpage/script.test.ts`, plus 7 new bundled-skill assertions in `test/skill-validation.test.ts`. All passing in under two seconds.
+
+| Surface | Shape |
+|---|---|
+| New `$B` command | `skill` (5 subcommands: list, show, run, test, rm) |
+| New modules | 4 (`browse-client.ts`, `browser-skills.ts`, `browser-skill-commands.ts`, `skill-token.ts`) |
+| Bundled reference skills | 1 (`hackernews-frontpage`) |
+| Storage tiers | 3 (project > global > bundled, first-wins) |
+| SDK distribution model | sibling-file: each skill ships `_lib/browse-client.ts` (~3KB, byte-identical to canonical) |
+| Daemon-side capability default | scoped session token, `read+write` only (no `eval`/`js`/`cookies`/`storage`) |
+| Process-side env default | scrubbed: drops $HOME, $PATH user-paths, anything matching TOKEN/KEY/SECRET, AWS_*, OPENAI_*, GITHUB_*, etc. |
+| Codex outside-voice findings resolved | 5 of 8 (3 deferred to Phase 2/4 with eyes open; design doc cross-references each) |
+
+### What this means for builders
+
+Phase 1 is the foundation. You can hand-write deterministic Playwright scripts today, drop them into `~/.gstack/browser-skills/<name>/` (or a project-local override), and the runtime executes them with a scoped token bound to browser-driving commands. The bundled `hackernews-frontpage` is the pattern to copy.
+
+Phase 2 (next release) is where the productivity gain lives. The agent prototypes a flow via `$B`, you say "skillify it," and the artifacts get written via an approval gate. Open design questions deferred to Phase 2: how to synthesize the script from a lossy activity feed, and how to ship Bun runtime alongside generated skills.
+
+### Itemized changes
+
+#### Added
+
+- `$B skill list|show|run|test|rm <name?>`. Five subcommands. List walks 3 tiers (project > global > bundled) and prints the resolved tier inline so "why did it run that one?" is never a debugging mystery. Run mints a per-spawn scoped capability token, spawns `bun run script.ts -- <args>` with cwd locked to the skill dir, captures stdout (1MB cap) and stderr, and revokes the token on exit.
+- `browse/src/browse-client.ts`. Canonical SDK (~250 LOC). Reads `GSTACK_PORT` + `GSTACK_SKILL_TOKEN` from env first (set by `$B skill run`), falls back to `<project>/.gstack/browse.json` for standalone debug runs. Convenience methods cover the read+write surface: goto, click, fill, text, html, snapshot, links, forms, accessibility, attrs, media, data, scroll, press, type, select, wait, hover, screenshot. Low-level `command(cmd, args)` escape hatch for anything else.
+- `browse/src/browser-skills.ts`. Three-tier storage helpers. `listBrowserSkills()` walks project > global > bundled (first-wins), parses SKILL.md frontmatter, no INDEX.json. `readBrowserSkill(name)` does the same for a single name. `tombstoneBrowserSkill(name, tier)` moves a skill into `.tombstones/<name>-<ts>/` for recoverability.
+- `browse/src/skill-token.ts`. Wraps `token-registry.createToken/revokeToken` with skill-specific clientId encoding (`skill:<name>:<spawn-id>`) and read+write defaults. TTL = spawn timeout + 30s slack.
+- `browser-skills/hackernews-frontpage/`. Bundled reference skill (SKILL.md, script.ts, _lib/browse-client.ts, fixtures/hn-2026-04-26.html, script.test.ts). Smallest interesting browser-skill: scrapes HN front page, returns 30 stories as JSON, no auth, stable HTML.
+- `docs/designs/BROWSER_SKILLS_V1.md`. Design doc capturing the 13 locked decisions, two-axis trust model, full responses to all 8 Codex outside-voice findings, and Phase 2-4 sketches.
+
+#### Changed
+
+- `browse/src/commands.ts` registers `skill` as a META command.
+- `browse/src/server.ts` threads the local listen port (`LOCAL_LISTEN_PORT`) to meta-command dispatch via `MetaCommandOpts.daemonPort` so `$B skill run` knows which port to point spawned scripts at.
+- `browse/src/meta-commands.ts` dispatches `skill` to `handleSkillCommand`.
+- `test/skill-validation.test.ts` extends to cover bundled browser-skills: each must have SKILL.md + script.ts + _lib/browse-client.ts (byte-identical to canonical) + script.test.ts, with frontmatter satisfying the host/triggers/args contract.
+- `TODOS.md` replaces the original "self-authoring `$B` commands" P1 with three new entries (Phase 2 P1, Phase 3 P2, Phase 4 P2).
+
+#### For contributors
+
+- The browser-skill SKILL.md frontmatter has a hard contract enforced by `parseSkillFile()` and `test/skill-validation.test.ts`. Required: `host` (string), `triggers` (string list), `args` (mapping list). Optional: `trusted` (bool, defaults false), `version`, `source` (`human`/`agent`), `description`.
+- The canonical SDK at `browse/src/browse-client.ts` and the sibling at `browser-skills/hackernews-frontpage/_lib/browse-client.ts` MUST be byte-identical. The skill-validation test fails the build otherwise. When the canonical SDK changes, update every bundled skill's `_lib/` copy.
+- Phase 2 design questions are tracked in `docs/designs/BROWSER_SKILLS_V1.md` ("Phase 2 sketch"). Specifically: synthesis from lossy activity feed, and Bun runtime distribution for user-authored skills landing on machines without Bun.
+
 ## [1.8.0.0] - 2026-04-25
 
 ## **Two new browser primitives that compound the agent over time. Per-site notes save what works once and reuse it. Raw CDP gets a tightly-scoped escape hatch.**
