@@ -138,12 +138,127 @@ export function isPlanReadyVisible(visible: string): boolean {
   return /ready to execute|Would you like to proceed/i.test(visible);
 }
 
+/**
+ * Detect a Claude Code permission dialog. These render as a numbered
+ * option list (so isNumberedOptionListVisible matches them) but they
+ * are NOT a skill's AskUserQuestion — they're claude asking the user
+ * whether to grant a tool/file permission. Tests that look for skill
+ * AUQs must explicitly skip these.
+ *
+ * Both English phrases below are stable across recent Claude Code
+ * versions. The check is permissive on whitespace because TTY rendering
+ * may wrap or reflow text.
+ */
+export function isPermissionDialogVisible(visible: string): boolean {
+  return (
+    /requested\s+permissions?\s+to/i.test(visible) ||
+    /Do\s+you\s+want\s+to\s+proceed\?/i.test(visible) ||
+    // "Yes / Yes, allow all edits / No" shape rendered by Claude Code for
+    // file-edit permission grants. The middle option's "allow all" phrase
+    // is the unique signature.
+    /\ballow\s+all\s+edits\b/i.test(visible) ||
+    // "Yes, and always allow access to <dir>" shape (workspace trust).
+    /always\s+allow\s+access\s+to/i.test(visible) ||
+    // Bash command permission prompts.
+    /Bash\s+command\s+.*\s+requires\s+permission/i.test(visible)
+  );
+}
+
 /** Detect any AskUserQuestion-shaped numbered option list with cursor. */
 export function isNumberedOptionListVisible(visible: string): boolean {
   // ❯ cursor + at least two numbered options 1-9.
   // Matches the trust dialog AND plan-ready prompt AND skill questions.
   // Tighter classification happens via scope (after-trust, after-skill-cmd, etc).
-  return /❯\s*1\./.test(visible) && /\b2\./.test(visible);
+  //
+  // Note on the `2\.` regex: the TTY uses cursor-positioning escape codes
+  // (`\x1b[40C`) for whitespace which stripAnsi removes — collapsing
+  // `text 2.` to `text2.`. A `\b2\.` word-boundary regex therefore fails
+  // because `t-2` is a word-to-word transition. We use the weaker
+  // `[^0-9]2\.` to require a non-digit before `2` (so we don't match
+  // `12.0`) without requiring whitespace.
+  return /❯\s*1\./.test(visible) && /(^|[^0-9])2\./.test(visible);
+}
+
+/**
+ * Parse a rendered numbered-option list out of the visible TTY text.
+ *
+ * Looks for lines like `❯ 1. label` (cursor) or `  2. label` (no cursor)
+ * and returns them in order. Used by tests that need to ROUTE on a specific
+ * option label (e.g. answer "HOLD SCOPE" by sending its index + Enter)
+ * without hard-coding positional indexes that drift when option order
+ * changes between skill versions.
+ *
+ * Reads only the LAST 4KB of visible to avoid matching stale option lists
+ * from earlier prompts in the session.
+ *
+ * Returns [] when no list is rendered. Otherwise returns indices in the
+ * order they appear (1-based, matching what the user types). Labels are
+ * trimmed but otherwise verbatim from the TTY (may include trailing
+ * `(recommended)` markers, etc).
+ */
+export function parseNumberedOptions(
+  visible: string,
+): Array<{ index: number; label: string }> {
+  const tail = visible.length > 4096 ? visible.slice(-4096) : visible;
+  // Split on lines, look for `❯ N.` or `  N.` patterns. Up to N=9.
+  // The `\s*` after `.` (not `\s+`) is required because stripAnsi removes
+  // TTY cursor-positioning escapes that render as spaces, so a label that
+  // visually reads "1. Option" can come through as "1.Option".
+  const optionRe = /^[\s❯]*([1-9])\.\s*(\S.*?)\s*$/;
+  // We anchor on the LATEST `❯ 1.` line in the buffer — the cursor marker
+  // for the active AUQ. Older numbered lists (e.g., a granted permission
+  // dialog still in scrollback) sit above it and must be ignored. Without
+  // this, parseNumberedOptions returns stale options after the dialog is
+  // dismissed.
+  const lines = tail.split('\n');
+  // Anchor on the LAST `❯ 1.` line (cursor is on option 1 of the active
+  // AUQ). Greedy character classes don't help here — we need a literal
+  // `❯` after optional leading whitespace.
+  let cursorLineIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*❯\s*1\./.test(lines[i] ?? '')) {
+      cursorLineIdx = i;
+      break;
+    }
+  }
+  // Fallback: if cursor isn't on option 1 (user pressed Down), find the
+  // last `1.` line. Allow leading `  ` or `❯ ` prefixes; do NOT include `❯`
+  // in the leading character class because greedy matching would eat the
+  // sigil and prevent the literal-cursor anchor above from finding it.
+  if (cursorLineIdx < 0) {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (/^(?:\s*|\s*❯\s+)1\./.test(lines[i] ?? '')) {
+        cursorLineIdx = i;
+        break;
+      }
+    }
+  }
+  if (cursorLineIdx < 0) return [];
+  const found: Array<{ index: number; label: string }> = [];
+  const seenIndices = new Set<number>();
+  for (let i = cursorLineIdx; i < lines.length; i++) {
+    const m = optionRe.exec(lines[i] ?? '');
+    if (!m) continue;
+    const idx = Number(m[1]);
+    const label = (m[2] ?? '').trim();
+    if (seenIndices.has(idx)) continue;
+    if (label.length === 0) continue;
+    seenIndices.add(idx);
+    found.push({ index: idx, label });
+  }
+  // Only return if we found a sequential 1.., 2.., ... block (at least 2
+  // consecutive options starting at 1). Otherwise it's noise (e.g. a
+  // numbered list inside prose, like "1. Read the file").
+  found.sort((a, b) => a.index - b.index);
+  if (found.length < 2) return [];
+  if (found[0]!.index !== 1) return [];
+  for (let i = 1; i < found.length; i++) {
+    if (found[i]!.index !== found[i - 1]!.index + 1) {
+      // Truncate at the first gap.
+      return found.slice(0, i);
+    }
+  }
+  return found;
 }
 
 /**
