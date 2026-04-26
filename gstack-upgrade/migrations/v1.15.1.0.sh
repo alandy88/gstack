@@ -29,7 +29,9 @@ WIREUP_BIN="${BIN_DIR}/gstack-gbrain-source-wireup"
 # Skip if user never opted into brain-sync.
 SYNC_MODE=""
 if [ -x "$CONFIG_BIN" ]; then
-  SYNC_MODE=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo "")
+  # Trim whitespace defensively: gstack-config can emit trailing newlines,
+  # which would mis-classify "off\n" as a non-empty non-off mode.
+  SYNC_MODE=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null | tr -d '[:space:]' || echo "")
 fi
 if [ "$SYNC_MODE" = "off" ] || [ -z "$SYNC_MODE" ]; then
   exit 0
