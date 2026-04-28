@@ -68,6 +68,12 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // tries to execute the file directly via CreateProcess, which fails on the
   // shebang. Catches gstack-question-log.test.ts, gstack-paths.test.ts, etc.
   { pattern: /path\.join\([^)]*,\s*['"]bin['"]\s*[,)]/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
+  // Tests that launch a real Playwright browser. The windows-free-tests CI job
+  // runs a curated subset that intentionally does NOT install Chromium —
+  // browser bring-up on Windows is a separate concern (see PR #1238). Tests
+  // matching `await foo.launch(` need Chromium and fail with "Executable
+  // doesn't exist" on the runner.
+  { pattern: /await\s+\w+\.launch\(/, reason: 'launches Playwright browser (Chromium not installed in windows-free CI)' },
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;
