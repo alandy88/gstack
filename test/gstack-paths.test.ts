@@ -10,9 +10,14 @@ const BIN = path.join(ROOT, 'bin', 'gstack-paths');
 // doesn't parse `#!/usr/bin/env bash`. Production usage always sources the
 // helper from inside a bash block (`eval "$(~/.claude/skills/gstack/bin/gstack-paths)"`)
 // so bash is always the executor — this matches that contract.
+//
+// USERPROFILE: '' is a Windows-specific override. Git Bash auto-populates
+// HOME from USERPROFILE at shell startup if HOME is unset/empty, which
+// silently breaks the "HOME unset" test scenarios. Clearing USERPROFILE
+// alongside HOME prevents that auto-population on Windows runners.
 function run(env: Record<string, string | undefined>): Record<string, string> {
   const result = spawnSync('bash', [BIN], {
-    env: { PATH: process.env.PATH, ...env } as Record<string, string>,
+    env: { PATH: process.env.PATH, USERPROFILE: '', ...env } as Record<string, string>,
     encoding: 'utf-8',
   });
   if (result.status !== 0) {
@@ -76,7 +81,7 @@ describe('gstack-paths', () => {
 
   test('output is shell-evalable: only KEY=VALUE lines, no extra prose', () => {
     const result = spawnSync('bash', [BIN], {
-      env: { PATH: process.env.PATH, HOME: '/tmp/h' } as Record<string, string>,
+      env: { PATH: process.env.PATH, USERPROFILE: '', HOME: '/tmp/h' } as Record<string, string>,
       encoding: 'utf-8',
     });
     const lines = result.stdout.split('\n').filter(Boolean);
