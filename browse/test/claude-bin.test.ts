@@ -40,10 +40,14 @@ describe('claude-bin', () => {
 
   test('PATH-resolvable override goes through Bun.which (the bug the fork shipped)', () => {
     // Make a fake binary in a temp dir, point PATH at it, set override to bare command name.
+    // Windows requires the file to have a PATHEXT-listed extension to be discoverable
+    // via Bun.which — without the extension Bun.which returns undefined.
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-bin-test-'));
-    const fakeBin = path.join(tmpDir, 'fake-claude-cli');
-    fs.writeFileSync(fakeBin, '#!/bin/sh\necho fake\n');
-    fs.chmodSync(fakeBin, 0o755);
+    const isWindows = process.platform === 'win32';
+    const fakeBinName = isWindows ? 'fake-claude-cli.cmd' : 'fake-claude-cli';
+    const fakeBin = path.join(tmpDir, fakeBinName);
+    fs.writeFileSync(fakeBin, isWindows ? '@echo fake\r\n' : '#!/bin/sh\necho fake\n');
+    if (!isWindows) fs.chmodSync(fakeBin, 0o755);
     try {
       const got = resolveClaudeCommand({
         PATH: tmpDir,

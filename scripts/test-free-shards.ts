@@ -63,6 +63,11 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\.mode\s*&\s*0o[0-7]+/, reason: 'POSIX file mode bitmask (mode & 0o600 etc — Windows fakes mode bits)' },
   { pattern: /\.endsWith\(['"]\//, reason: 'hardcoded forward-slash path assertion (Windows uses \\\\)' },
   { pattern: /['"]\.\/[a-zA-Z][^"']*['"]\)\s*\.\s*toBe\(true\)/, reason: 'forward-slash path comparison' },
+  // Tests that spawn a bash shebang script in bin/ via spawnSync. Git Bash on
+  // Windows can run `bash /path/to/script` but spawnSync(scriptPath, ...)
+  // tries to execute the file directly via CreateProcess, which fails on the
+  // shebang. Catches gstack-question-log.test.ts, gstack-paths.test.ts, etc.
+  { pattern: /path\.join\([^)]*,\s*['"]bin['"]\s*[,)]/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;
