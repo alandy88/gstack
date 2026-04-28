@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.21.0.0] - 2026-04-28
+## [1.16.0.0] - 2026-04-28
 
 ## **Paired-agent tunnel allowlist now matches what the docs already promised. Catch-22 resolved, gate is unit-testable.**
 
