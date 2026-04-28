@@ -14,6 +14,15 @@
 *.sh         text eol=lf
 *.bash       text eol=lf
 
+# Extensionless executables (top-level setup script + bin/gstack-* helpers).
+# These are bash scripts checked into git without a `.sh` suffix. Without
+# explicit eol=lf, Windows checkout with core.autocrlf=true converts them
+# to CRLF and breaks both `\n`-anchored regex tests (test/setup-codesign.test.ts)
+# and shebang resolution if the script is ever executed on Linux.
+setup        text eol=lf
+bin/*        text eol=lf
+**/scripts/* text eol=lf
+
 # TypeScript/JavaScript: LF for portability across the bun toolchain.
 *.ts         text eol=lf
 *.tsx        text eol=lf
