@@ -55,6 +55,12 @@ describe('gstack-paths', () => {
   });
 
   test('CWD fallback when HOME also unset (container env)', () => {
+    // Skip on Windows: Git Bash auto-derives HOME from USERPROFILE,
+    // HOMEDRIVE, and HOMEPATH at shell startup. Even with all three
+    // cleared, bash falls back to /c/Users/<user>. The container env
+    // (HOME genuinely unset) is unreachable on Windows runners. The bash
+    // script's CWD fallback IS correct — exercised on Linux/Mac CI.
+    if (process.platform === 'win32') return;
     const got = run({ HOME: '' });
     expect(got.GSTACK_STATE_ROOT).toBe('.gstack');
   });
@@ -63,7 +69,10 @@ describe('gstack-paths', () => {
     expect(run({ GSTACK_PLAN_DIR: '/tmp/explicit', HOME: '/h' }).PLAN_ROOT).toBe('/tmp/explicit');
     expect(run({ CLAUDE_PLANS_DIR: '/tmp/claude', HOME: '/h' }).PLAN_ROOT).toBe('/tmp/claude');
     expect(run({ HOME: '/tmp/myhome' }).PLAN_ROOT).toBe('/tmp/myhome/.claude/plans');
-    expect(run({ HOME: '' }).PLAN_ROOT).toBe('.claude/plans');
+    // CWD fallback only verifiable on POSIX — Git Bash auto-populates HOME.
+    if (process.platform !== 'win32') {
+      expect(run({ HOME: '' }).PLAN_ROOT).toBe('.claude/plans');
+    }
   });
 
   test('TMP_ROOT chain: TMPDIR > TMP > .gstack/tmp', () => {
