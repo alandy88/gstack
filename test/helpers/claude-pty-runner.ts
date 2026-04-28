@@ -285,6 +285,35 @@ export function parseNumberedOptions(
 }
 
 /**
+ * The four /plan-ceo-review modes. Used by `skill-e2e-plan-ceo-mode-routing`
+ * to detect Step 0F mode-selection AskUserQuestions, and by the upcoming
+ * finding-count tests as a Step-0 boundary signal: an AUQ whose options
+ * match this regex IS the mode pick (the last Step-0 question for plan-ceo).
+ *
+ * Lifted out of the mode-routing test so multiple PTY tests can share one
+ * source of truth — when /plan-ceo-review adds a fifth mode, one regex updates
+ * everywhere instead of drifting per-test.
+ */
+export const MODE_RE = /HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION/i;
+
+/**
+ * Stable signature for a parsed numbered-option list — used by tests to detect
+ * "is this AUQ the same as the last poll, or has the agent advanced to a new
+ * one?" Joins each option as `${index}:${label}` after sorting by index.
+ *
+ * Defensive sort means the signature is order-independent at the input level,
+ * even though `parseNumberedOptions` already returns indices in ascending order.
+ */
+export function optionsSignature(
+  opts: Array<{ index: number; label: string }>,
+): string {
+  return [...opts]
+    .sort((a, b) => a.index - b.index)
+    .map((o) => `${o.index}:${o.label}`)
+    .join('|');
+}
+
+/**
  * Pure classifier for the visible TTY buffer. Decides which outcome the
  * polling loop should return on this tick, or `null` to keep polling.
  *

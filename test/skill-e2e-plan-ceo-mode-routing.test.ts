@@ -37,14 +37,14 @@ import {
   isPermissionDialogVisible,
   parseNumberedOptions,
   isPlanReadyVisible,
+  MODE_RE,
+  optionsSignature,
   TAIL_SCAN_BYTES,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
 const describeE2E = shouldRun ? describe : describe.skip;
-
-const MODE_RE = /HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION/i;
 
 interface ModeCase {
   mode: 'HOLD SCOPE' | 'SCOPE EXPANSION';
@@ -96,8 +96,8 @@ async function navigateToModeAskUserQuestion(
 
     // Has the rendered list changed since last poll? If not, we're seeing
     // the same prompt and shouldn't double-press.
-    const sig = opts.map(o => `${o.index}:${o.label}`).join('|');
-    const lastSig = lastSeenList.map(o => `${o.index}:${o.label}`).join('|');
+    const sig = optionsSignature(opts);
+    const lastSig = optionsSignature(lastSeenList);
     if (sig === lastSig) continue;
     lastSeenList = opts;
 
