@@ -634,11 +634,17 @@ async function handleCommandInternal(
     }
   }
 
-  // ─── Tab ownership check (for scoped tokens) ──────────────
-  // Skip for newtab — it creates a new tab, doesn't access an existing one.
-  if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && (WRITE_COMMANDS.has(command) || tokenInfo.tabPolicy === 'own-only')) {
+  // ─── Tab ownership check (own-only tokens / pair-agent isolation) ──
+  //
+  // Only `own-only` tokens (pair-agent over tunnel) are bound to their own
+  // tabs. `shared` tokens — the default for skill spawns and local scoped
+  // clients — can drive any tab; the capability gate (scope checks above)
+  // and rate limits already constrain what they can do.
+  //
+  // Skip for `newtab` — it creates a tab rather than accessing one.
+  if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && tokenInfo.tabPolicy === 'own-only') {
     const targetTab = tabId ?? browserManager.getActiveTabId();
-    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: WRITE_COMMANDS.has(command), ownOnly: tokenInfo.tabPolicy === 'own-only' })) {
+    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: WRITE_COMMANDS.has(command), ownOnly: true })) {
       return {
         status: 403, json: true,
         result: JSON.stringify({

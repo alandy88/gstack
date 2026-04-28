@@ -694,14 +694,32 @@ export class BrowserManager {
 
   /**
    * Check if a client can access a tab.
-   * If ownOnly or isWrite is true, requires ownership.
-   * Otherwise (reads), allow by default.
+   *
+   * Two policies, distinguished by `options.ownOnly`:
+   *
+   *   - **own-only (pair-agent over tunnel):** the strict mode. Token must own
+   *     the target tab for any access (reads or writes). Unowned user tabs
+   *     and tabs owned by other clients are off-limits. Remote agents must
+   *     `newtab` first to get a tab they can drive.
+   *
+   *   - **shared (local skill spawns, default scoped tokens):** permissive on
+   *     tab access. The token can read/write any tab — capability is gated
+   *     elsewhere (scope checks at /command, rate limits, the dual-listener
+   *     allowlist for tunnel-bound traffic). Tab ownership is not a security
+   *     boundary for shared tokens; it only matters for pair-agent isolation.
+   *     This matches the contract documented in `skill-token.ts:79`
+   *     ("skill scripts may switch tabs as needed").
+   *
+   * Root is unconstrained.
+   *
+   * `isWrite` is preserved in the signature for callers that want to log or
+   * branch on it elsewhere, but the access decision itself only depends on
+   * `ownOnly` + ownership map state.
    */
   checkTabAccess(tabId: number, clientId: string, options: { isWrite?: boolean; ownOnly?: boolean } = {}): boolean {
     if (clientId === 'root') return true;
-    const owner = this.tabOwnership.get(tabId);
-    if (options.ownOnly || options.isWrite) {
-      if (!owner) return false;
+    if (options.ownOnly) {
+      const owner = this.tabOwnership.get(tabId);
       return owner === clientId;
     }
     return true;
