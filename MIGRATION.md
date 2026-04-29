@@ -28,15 +28,15 @@
 - [x] investigate
 
 ## Phase 2: Review & Planning Skills
-- [ ] review
-- [ ] cso
-- [ ] plan-ceo-review
-- [ ] plan-eng-review
-- [ ] plan-design-review
-- [ ] plan-devex-review
-- [ ] office-hours
-- [ ] retro
-- [ ] autoplan
+- [x] review
+- [x] cso
+- [x] plan-ceo-review
+- [x] plan-eng-review
+- [x] plan-design-review
+- [x] plan-devex-review
+- [x] office-hours
+- [x] retro
+- [x] autoplan
 
 ## Phase 3: Ship & Deploy Skills
 - [ ] ship
