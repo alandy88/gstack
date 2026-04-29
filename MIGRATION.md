@@ -20,12 +20,12 @@
 - [ ] scripts/upstream-diff.sh
 
 ## Phase 1: Simple Standalone Skills
-- [ ] careful
-- [ ] freeze
-- [ ] guard
-- [ ] unfreeze
-- [ ] learn
-- [ ] investigate
+- [x] careful
+- [x] freeze
+- [x] guard
+- [x] unfreeze
+- [x] learn
+- [x] investigate
 
 ## Phase 2: Review & Planning Skills
 - [ ] review
