@@ -4,6 +4,10 @@
 # host-specific sections before diffing.
 set -euo pipefail
 
+# Anchor to repository root regardless of where script is called from
+REPO_ROOT="$(cd "$(dirname "$0")/.." && git rev-parse --show-toplevel 2>/dev/null || cd "$(dirname "$0")/..")"
+cd "$REPO_ROOT"
+
 UPSTREAM_BRANCH="${1:-upstream-mirror}"
 PLUGIN_SKILLS="skills"
 CHANGES=0
@@ -50,14 +54,14 @@ for skill_dir in "$PLUGIN_SKILLS"/*/; do
 done
 
 # Check for new upstream skills not yet migrated
-for upstream_dir in $(git ls-tree -d --name-only "$UPSTREAM_BRANCH" 2>/dev/null); do
+while IFS= read -r upstream_dir; do
     if git show "$UPSTREAM_BRANCH:$upstream_dir/SKILL.md" &>/dev/null; then
         if [ ! -d "$PLUGIN_SKILLS/$upstream_dir" ]; then
             echo "NEW UPSTREAM: $upstream_dir (not migrated)"
             NEW=$((NEW + 1))
         fi
     fi
-done
+done < <(git ls-tree -d --name-only "$UPSTREAM_BRANCH" 2>/dev/null)
 
 echo ""
 echo "=== Summary: $CHANGES changed, $NEW new upstream skills ==="

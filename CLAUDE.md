@@ -6,7 +6,7 @@ Forked from [garrytan/gstack](https://github.com/garrytan/gstack) and converted 
 
 Load plugin for testing:
 ```bash
-claude --plugin-dir /d/Git/gstack
+claude --plugin-dir .
 ```
 
 Reload after changes: `/reload-plugins`
