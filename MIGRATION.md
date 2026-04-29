@@ -54,11 +54,11 @@
 - [x] devex-review
 
 ## Phase 5: Browser Skills
-- [ ] browse daemon in bin/
-- [ ] browse
-- [ ] qa
-- [ ] qa-only
-- [ ] open-gstack-browser
+- [x] browse daemon in bin/
+- [x] browse
+- [x] qa
+- [x] qa-only
+- [x] open-gstack-browser
 
 ## Phase 6: Infrastructure & Cleanup
 - [ ] setup-deploy

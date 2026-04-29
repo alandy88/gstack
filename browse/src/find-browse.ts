@@ -29,6 +29,13 @@ export function locateBinary(): string | null {
   const home = homedir();
   const markers = ['.codex', '.agents', '.claude'];
 
+  // Native plugin: CLAUDE_PLUGIN_ROOT points directly to the plugin directory
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  if (pluginRoot) {
+    const pluginBin = join(pluginRoot, 'browse', 'dist', 'browse');
+    if (existsSync(pluginBin)) return pluginBin;
+  }
+
   // Workspace-local takes priority (for development)
   if (root) {
     for (const m of markers) {

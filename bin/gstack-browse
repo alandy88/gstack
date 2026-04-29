@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Wrapper that locates and runs the browse daemon binary.
+# Plugin bin/ is on PATH, so this script is callable as just "gstack-browse".
+set -euo pipefail
+
+# Find the plugin root by walking up from this script's location
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+BROWSE_BIN="$PLUGIN_ROOT/browse/dist/browse"
+
+if [ ! -f "$BROWSE_BIN" ]; then
+    echo "gstack-browse: binary not found at $BROWSE_BIN" >&2
+    echo "Run: gstack-browse-build" >&2
+    exit 1
+fi
+
+exec "$BROWSE_BIN" "$@"
