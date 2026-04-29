@@ -61,12 +61,12 @@
 - [x] open-gstack-browser
 
 ## Phase 6: Infrastructure & Cleanup
-- [ ] setup-deploy
-- [ ] setup-browser-cookies
-- [ ] plan-tune
-- [ ] health (rewrite)
-- [ ] landing-report (evaluate)
-- [ ] Drop: context-save, context-restore, gstack-upgrade, codex, setup-gbrain, make-pdf, openclaw, claude, contrib
+- [x] setup-deploy
+- [x] setup-browser-cookies
+- [x] plan-tune
+- [x] health (rewrite)
+- [x] landing-report (migrated — standalone version queue dashboard methodology)
+- [x] Drop: context-save, context-restore, gstack-upgrade, codex, setup-gbrain, make-pdf, openclaw, claude, contrib
 
 ## Post-Migration
 - [ ] Delete root-level skill dirs
