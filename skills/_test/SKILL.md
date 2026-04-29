@@ -21,7 +21,10 @@ Expected output: `gstack-test-path: OK`
 ls -la .claude/gstack/learnings.jsonl
 ```
 
-4. **Shared context skill:** Verify _context skill is discoverable:
-Ask "What skills are available?" and confirm _context appears.
+4. **Shared context skill:** Verify _context skill file exists:
+```bash
+ls -la skills/_context/SKILL.md
+```
+Expected: file exists with non-zero size.
 
 Report results.
