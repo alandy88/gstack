@@ -7,7 +7,7 @@
 # shell injection when consumed via source or eval.
 set -euo pipefail
 
-CACHE_DIR=".claude/gstack/slug-cache"
+CACHE_DIR="$(git rev-parse --show-toplevel 2>/dev/null || echo .)/.claude/gstack/slug-cache"
 PROJECT_DIR="$(pwd)"
 # Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
 CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')

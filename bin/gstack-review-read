@@ -7,6 +7,7 @@ eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-.claude/gstack}"
 cat "$GSTACK_HOME/reviews/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"
+# gstack-config removed in plugin migration; eng review always runs by default
 echo "false"
 echo "---HEAD---"
 git rev-parse --short HEAD 2>/dev/null || echo "unknown"
