@@ -47,11 +47,11 @@
 - [x] benchmark-models
 
 ## Phase 4: Design Skills
-- [ ] design-review
-- [ ] design-consultation
-- [ ] design-html
-- [ ] design-shotgun
-- [ ] devex-review
+- [x] design-review
+- [x] design-consultation
+- [x] design-html
+- [x] design-shotgun
+- [x] devex-review
 
 ## Phase 5: Browser Skills
 - [ ] browse daemon in bin/
