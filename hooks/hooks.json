@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p .claude/gstack && touch .claude/gstack/learnings.jsonl",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

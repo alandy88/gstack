@@ -1,0 +1,9 @@
+{
+  "name": "gstack",
+  "description": "Virtual engineering team — 43 specialist skills for review, QA, planning, design, shipping, and browser automation",
+  "version": "1.0.0",
+  "author": {
+    "name": "Peter Yu (forked from Garry Tan)"
+  },
+  "repository": "https://github.com/alandy88/gstack"
+}
