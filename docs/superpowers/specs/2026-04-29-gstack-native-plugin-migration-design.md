@@ -5,6 +5,8 @@
 **Status:** Approved
 **Source:** Forked from [garrytan/gstack](https://github.com/garrytan/gstack)
 
+**Rev:** 2 (post-Codex review — added state audit, bin/ deps, browse path fix, Phase 0 split)
+
 ## Goal
 
 Convert gstack from a custom-installed skill collection (1011-line setup script, symlink-based discovery, multi-host support) into a native Claude Code plugin using `.claude-plugin/plugin.json` manifest format. Eliminate all custom install infrastructure while preserving all 43 skill methodologies and the browse daemon.
@@ -38,9 +40,16 @@ gstack/
 ├── hooks/
 │   └── hooks.json               # SessionStart hook
 ├── bin/
-│   ├── gstack-browse-server     # compiled browse daemon binary
-│   ├── gstack-browse            # CLI wrapper (start/stop/status/command)
-│   └── gstack-browse-build      # rebuild script
+│   ├── gstack-browse            # CLI wrapper → browse/dist/browse
+│   ├── gstack-browse-build      # rebuild script
+│   ├── gstack-slug              # project slug + branch detection
+│   ├── gstack-learnings-search  # search learnings.jsonl
+│   ├── gstack-learnings-log     # append to learnings.jsonl
+│   ├── gstack-diff-scope        # diff scope analysis (review/ship)
+│   ├── gstack-review-read       # read prior review results
+│   ├── gstack-review-log        # write review results
+│   ├── gstack-next-version      # version bumping (ship)
+│   └── gstack-taste-update      # design taste profile
 ├── browse/
 │   └── src/                     # browse daemon source
 ├── .mcp.json                    # future: browse as MCP server
@@ -91,7 +100,21 @@ gstack/
 
 ### Current preamble (~80 lines per skill)
 
-Checks: version updates, session count, config, telemetry, learnings, routing, checkpoint mode.
+Full audit reveals the preamble does far more than version/config checks. Each skill's preamble:
+
+1. **Version/update check** — `gstack-update-check`, upgrade prompts
+2. **Session tracking** — creates `~/.gstack/sessions/$PPID`, cleans stale sessions
+3. **Config loading** — `gstack-config get` for ~10 keys (proactive, telemetry, explain_level, question_tuning, checkpoint_mode, etc.)
+4. **Learnings** — `gstack-slug` → construct path → `gstack-learnings-search`
+5. **Timeline logging** — `gstack-timeline-log` at start and end
+6. **Telemetry** — append to `~/.gstack/analytics/skill-usage.jsonl`, call `gstack-telemetry-log`
+7. **Question logging** — `gstack-question-log` for every AskUserQuestion
+8. **Question tuning** — `gstack-question-preference --check` before each question
+9. **GBrain sync** — `gstack-brain-init`, `gstack-brain-restore`, `gstack-brain-sync`
+10. **First-time prompts** — telemetry consent, proactive consent, routing injection, lake principle, writing style, feature discovery (7+ marker files)
+11. **Vendoring deprecation** — detect and offer migration from vendored installs
+12. **Review logging** — `gstack-review-log`, `gstack-review-read` (review/ship only)
+13. **Specialist stats** — `gstack-specialist-stats` (review/ship only)
 
 ### What stays
 
@@ -99,10 +122,51 @@ Checks: version updates, session count, config, telemetry, learnings, routing, c
 |---|---|
 | Project learnings loading | `_context` shared skill + SessionStart hook |
 | Project context | `_context` shared skill |
+| Learnings writing | `_context` shared skill (append instruction) |
 
 ### What gets dropped
 
-Version/update check, session count/ELI16, config loading, telemetry, routing suggestions — all replaced by native plugin infrastructure.
+| Function | Reason |
+|---|---|
+| Version/update check | Native plugin handles updates |
+| Session tracking | Native Claude Code sessions |
+| Config loading (gstack-config) | Native settings.json / userConfig |
+| Timeline logging | Not needed for personal use |
+| Telemetry (local + remote) | Dropped entirely |
+| Question logging | Not needed for personal use |
+| Question tuning | Not needed for personal use |
+| GBrain sync | GBrain not supported |
+| First-time prompts (7+ markers) | No onboarding needed |
+| Vendoring deprecation | No vendored installs |
+| Review logging | Evaluate per-skill — keep if review skills use it |
+| Specialist stats | Evaluate per-skill — keep if review skills use it |
+
+### Bin scripts disposition
+
+Skills call ~20 `gstack-*` bin scripts. Disposition:
+
+| Script | Action |
+|---|---|
+| `gstack-update-check` | Drop |
+| `gstack-config` | Drop — use native settings |
+| `gstack-repo-mode` | Drop — not needed |
+| `gstack-slug` | **Keep** — provides SLUG and BRANCH vars, used by learnings |
+| `gstack-learnings-search` | **Keep** — searches learnings.jsonl |
+| `gstack-learnings-log` | **Keep** — appends to learnings.jsonl |
+| `gstack-timeline-log` | Drop |
+| `gstack-brain-*` | Drop — GBrain not supported |
+| `gstack-team-init` | Drop |
+| `gstack-question-preference` | Drop |
+| `gstack-question-log` | Drop |
+| `gstack-telemetry-log` | Drop |
+| `gstack-diff-scope` | **Keep** — used by review/ship for diff analysis |
+| `gstack-review-read` | **Keep** — reads prior reviews |
+| `gstack-review-log` | **Keep** — writes review results |
+| `gstack-specialist-stats` | **Evaluate** — adaptive review gating |
+| `gstack-next-version` | **Keep** — version bumping for ship |
+| `gstack-taste-update` | **Keep** — design taste profile |
+
+Kept scripts (~8) move to plugin `bin/`. Paths rewritten from `~/.gstack/` to `.claude/gstack/`.
 
 ### SessionStart Hook (`hooks/hooks.json`)
 
@@ -159,10 +223,14 @@ executing skill-specific methodology.
 
 ### Plugin integration
 
-- Pre-built binary committed to `bin/` (~58MB)
+- Pre-built binary stays at `browse/dist/browse` (current build output location)
+- Wrapper script in `bin/gstack-browse` calls `browse/dist/browse` via `${CLAUDE_PLUGIN_ROOT}`
 - `bin/` auto-added to Bash tool PATH by plugin system
 - Source kept in `browse/src/` for rebuilds
-- State at `~/.gstack/browse.json` (global singleton — exception to project-local rule)
+- Browse state is **project-local** at `.gstack/browse.json` (per current `browse/src/config.ts` behavior — NOT global)
+- Browse logs also project-local: `.gstack/browse-console.log`, `.gstack/browse-network.log`, `.gstack/browse-audit.jsonl`
+
+**Note:** `browse/src/find-browse.ts` searches for binary at `~/.claude/skills/gstack/browse/dist/browse` and similar paths. Must be patched to also check `${CLAUDE_PLUGIN_ROOT}/browse/dist/browse` for plugin mode.
 
 ### Stripped from browse
 
@@ -176,42 +244,77 @@ executing skill-specific methodology.
 
 ```
 .claude/gstack/
-├── learnings.jsonl      # compound knowledge
-├── plans/               # saved review plans
-└── config.yaml          # project-specific overrides
+├── learnings.jsonl          # compound knowledge
+├── plans/                   # saved review plans
+├── reviews/                 # per-branch review results (${BRANCH}-reviews.jsonl)
+├── taste-profile.json       # design preference profile
+└── config.yaml              # project-specific overrides
 ```
 
 Created by SessionStart hook. Add `.claude/gstack/` to project `.gitignore`.
+
+### Project-local browse state (`.gstack/`)
+
+Browse daemon uses its own `.gstack/` dir at project root (per current `browse/src/config.ts`):
+
+```
+.gstack/
+├── browse.json              # daemon PID, port, token
+├── browse-console.log       # browser console output
+├── browse-network.log       # network request/response log
+└── browse-audit.jsonl       # audit trail
+```
+
+This is the existing behavior — no change needed.
 
 ### Global (`~/.gstack/`) — minimal
 
 ```
 ~/.gstack/
-├── browse.json          # daemon PID, port, token
-├── models/              # ONNX classifier cache
+├── models/              # ONNX classifier cache (prompt injection)
 └── security/
-    └── attempts.jsonl   # prompt injection log
+    └── attempts.jsonl   # prompt injection attempt log
 ```
 
 ### Dropped
 
-- `~/.gstack/config.yaml` (global config)
-- `~/.gstack/sessions/` (session tracking)
-- `~/.gstack/analytics/` (telemetry)
-- `~/.gstack/.last-setup-version`, `.welcome-seen`, `.telemetry-prompted`, `.proactive-prompted`
+| Item | Reason |
+|---|---|
+| `~/.gstack/config.yaml` | Use native settings.json |
+| `~/.gstack/sessions/` | Native session tracking |
+| `~/.gstack/analytics/` | Telemetry dropped |
+| `~/.gstack/projects/${SLUG}/timeline.jsonl` | Not needed for personal use |
+| `~/.gstack/.telemetry-prompted` + 6 other markers | No onboarding flow |
+| `~/.gstack/.git/` (GBrain repo) | GBrain dropped |
+| `~/.gstack/.brain-*` files | GBrain dropped |
 
 ## 6. Migration Phases
 
-### Phase 0 — Scaffold
+### Phase 0A — Plugin Scaffold + Spike Validation
 
 - Create `.claude-plugin/plugin.json`
 - Create `skills/`, `hooks/`, `bin/` directories
-- Create `hooks/hooks.json`, `skills/_context/SKILL.md`
+- Create `hooks/hooks.json` (SessionStart hook)
+- Create `skills/_context/SKILL.md` (shared context skill)
+- Create one trivial test skill (`skills/_test/SKILL.md`) to validate:
+  - `claude --plugin-dir .` loads plugin
+  - `/gstack:_test` invokes correctly
+  - `bin/` PATH injection works (add a test script to `bin/`)
+  - Hook fires on session start
 - Create `MIGRATION.md`
+- **Gate: plugin scaffold works before proceeding**
+- Commit
+
+### Phase 0B — Shared Runtime Replacement
+
+- Copy kept bin scripts (~8) to plugin `bin/`
+- Rewrite paths in kept scripts: `~/.gstack/projects/${SLUG}/` → `.claude/gstack/`
+- Patch `gstack-slug` to work without `gstack-config`
+- Test: `gstack-slug`, `gstack-learnings-log`, `gstack-learnings-search` work from plugin `bin/`
 - Set up upstream remote + `upstream-mirror` branch
 - Create `scripts/upstream-diff.sh`
 - Add plugin `CLAUDE.md`
-- Test: `claude --plugin-dir .` loads empty plugin
+- **Gate: shared runtime scripts work before migrating skills**
 - Commit
 
 ### Phase 1 — Simple Standalone Skills (~6)
@@ -268,10 +371,12 @@ Delete: root-level skill dirs, `setup`, `hosts/`, `scripts/gen-skill-docs.ts`, r
 ```
 □ Copy {skill}/SKILL.md → skills/{skill}/SKILL.md
 □ Copy supporting files (scripts/, *.md) if any
-□ Strip preamble block (~80 lines)
+□ Strip preamble block (~80 lines, see Section 3 for full inventory)
 □ Strip host-specific sections (Codex/Cursor/Factory/etc.)
 □ Strip template markers ({{PREAMBLE}}, {{COMMAND_REFERENCE}}, etc.)
-□ Rewrite ~/.gstack/ paths → .claude/gstack/
+□ Strip gstack-specific calls (question-log, timeline-log, telemetry-log, brain-*)
+□ Rewrite ~/.gstack/projects/${SLUG}/ paths → .claude/gstack/
+□ Rewrite gstack-* bin script calls to only use kept scripts (see Section 3 disposition table)
 □ Update frontmatter (description, allowed-tools)
 □ Add _context skill reference if skill uses learnings
 □ Test: claude --plugin-dir . then invoke /gstack:{skill}
