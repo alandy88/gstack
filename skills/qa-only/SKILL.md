@@ -146,30 +146,8 @@ mkdir -p "$REPORT_DIR/screenshots"
 Search for relevant learnings from previous sessions:
 
 ```bash
-_CROSS_PROJ=$(gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
-echo "CROSS_PROJECT: $_CROSS_PROJ"
-if [ "$_CROSS_PROJ" = "true" ]; then
-  gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
-else
-  gstack-learnings-search --limit 10 2>/dev/null || true
-fi
+gstack-learnings-search --limit 10 2>/dev/null || true
 ```
-
-If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
-
-> gstack can search learnings from your other projects on this machine to find
-> patterns that might apply here. This stays local (no data leaves your machine).
-> Recommended for solo developers. Skip if you work on multiple client codebases
-> where cross-contamination would be a concern.
-
-Options:
-- A) Enable cross-project learnings (recommended)
-- B) Keep learnings project-scoped only
-
-If A: run `gstack-config set cross_project_learnings true`
-If B: run `gstack-config set cross_project_learnings false`
-
-Then re-run the search with the appropriate flag.
 
 If learnings are found, incorporate them into your analysis. When a review finding
 matches a past learning, display:
@@ -183,11 +161,10 @@ smarter on their codebase over time.
 
 Before falling back to git diff heuristics, check for richer test plan sources:
 
-1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
+1. **Project-scoped test plans:** Check `.claude/gstack/` for recent `*-test-plan-*.md` files for this repo
    ```bash
    setopt +o nomatch 2>/dev/null || true  # zsh compat
-   eval "$(gstack-slug 2>/dev/null)"
-   ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
+   ls -t .claude/gstack/*-test-plan-*.md 2>/dev/null | head -1
    ```
 2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
 3. **Use whichever source is richer.** Fall back to git diff analysis only if neither is available.
@@ -482,9 +459,9 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:** Write test outcome artifact for cross-session context:
 ```bash
-eval "$(gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+mkdir -p .claude/gstack
 ```
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
+Write to `.claude/gstack/{user}-{branch}-test-outcome-{datetime}.md`
 
 ### Output Structure
 
