@@ -69,7 +69,7 @@
 - [x] Drop: context-save, context-restore, gstack-upgrade, codex, setup-gbrain, make-pdf, openclaw, claude, contrib
 
 ## Post-Migration
-- [ ] Delete root-level skill dirs
-- [ ] Delete setup, hosts/, template pipeline
-- [ ] Delete extension/, supabase/, design/dist/, make-pdf/dist/
-- [ ] Update README.md
+- [x] Delete root-level skill dirs
+- [x] Delete setup, hosts/, template pipeline
+- [x] Delete extension/, supabase/, design/dist/, make-pdf/dist/
+- [x] Update README.md

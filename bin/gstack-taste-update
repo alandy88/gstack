@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // gstack-taste-update — update the persistent taste profile at
-// ~/.gstack/projects/$SLUG/taste-profile.json
+// .claude/gstack/taste-profile.json
 //
 // Usage:
 //   gstack-taste-update approved <variant-path> [--reason "<why>"]
@@ -8,7 +8,7 @@
 //   gstack-taste-update show                       — print current profile summary
 //   gstack-taste-update migrate                    — upgrade legacy approved.json to v1
 //
-// Schema v1 at ~/.gstack/projects/$SLUG/taste-profile.json:
+// Schema v1 at .claude/gstack/taste-profile.json:
 //
 //   {
 //     "version": 1,
