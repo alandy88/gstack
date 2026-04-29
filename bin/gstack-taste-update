@@ -33,7 +33,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
-const STATE_DIR = process.env.GSTACK_STATE_DIR || path.join(process.env.HOME || '/', '.gstack');
+const STATE_DIR = process.env.GSTACK_STATE_DIR || '.claude/gstack';
 const SCHEMA_VERSION = 1;
 const SESSION_CAP = 50;
 const DECAY_PER_WEEK = 0.05;
@@ -72,8 +72,8 @@ function getSlug(): string {
   }
 }
 
-function profilePath(slug: string): string {
-  return path.join(STATE_DIR, 'projects', slug, 'taste-profile.json');
+function profilePath(_slug: string): string {
+  return path.join(STATE_DIR, 'taste-profile.json');
 }
 
 function emptyProfile(): TasteProfile {

@@ -7,8 +7,8 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-mkdir -p "$GSTACK_HOME/projects/$SLUG"
+GSTACK_HOME="${GSTACK_HOME:-.claude/gstack}"
+mkdir -p "$GSTACK_HOME"
 
 INPUT="$1"
 
@@ -83,7 +83,4 @@ if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
   exit 1
 fi
 
-echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
-
-# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
-"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/learnings.jsonl" 2>/dev/null &
+echo "$VALIDATED" >> "$GSTACK_HOME/learnings.jsonl"
