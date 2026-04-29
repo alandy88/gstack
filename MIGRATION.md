@@ -39,12 +39,12 @@
 - [x] autoplan
 
 ## Phase 3: Ship & Deploy Skills
-- [ ] ship
-- [ ] land-and-deploy
-- [ ] canary
-- [ ] document-release
-- [ ] benchmark
-- [ ] benchmark-models
+- [x] ship
+- [x] land-and-deploy
+- [x] canary
+- [x] document-release
+- [x] benchmark
+- [x] benchmark-models
 
 ## Phase 4: Design Skills
 - [ ] design-review
